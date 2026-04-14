@@ -1,0 +1,20 @@
+{
+  "name": "pami-bot-web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Interfaz web local para ejecutar el bot de ordenes de prestaciones PAMI.",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "mammoth": "^1.11.0",
+    "multer": "^2.0.2",
+    "playwright-core": "^1.57.0"
+  }
+}

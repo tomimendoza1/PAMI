@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PAMI Bot Web</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div class="hero__content">
+          <p class="eyebrow">Automatizacion local</p>
+          <h1>Panel web para correr el bot de ordenes PAMI</h1>
+          <p class="hero__copy">
+            Carga la carpeta de pacientes, completa tus credenciales y ejecuta el bot con seguimiento en
+            tiempo real. La app corre en tu maquina y reutiliza la logica del script original.
+          </p>
+          <div class="hero__tips">
+            <div>
+              <strong>Formato esperado</strong>
+              <span>Una carpeta por paciente con su `.docx` y su `.pdf`.</span>
+            </div>
+            <div>
+              <strong>Navegador</strong>
+              <span>Por defecto usa Microsoft Edge instalado en Windows.</span>
+            </div>
+          </div>
+        </div>
+        <aside class="hero__status">
+          <div class="status-card">
+            <span class="status-card__label">Estado</span>
+            <strong id="jobStatus">Listo para iniciar</strong>
+          </div>
+          <div class="status-card">
+            <span class="status-card__label">Trabajo actual</span>
+            <strong id="jobId">Sin ejecucion</strong>
+          </div>
+          <div class="status-card">
+            <span class="status-card__label">Resumen</span>
+            <strong id="jobSummary">Todavia no hay resultados.</strong>
+          </div>
+        </aside>
+      </section>
+
+      <section class="grid">
+        <form id="jobForm" class="panel panel--form">
+          <div class="panel__header">
+            <h2>Configuracion</h2>
+            <p>Los campos avanzados ya vienen precargados con la configuracion del bot original.</p>
+          </div>
+
+          <div class="form-grid">
+            <label class="field">
+              <span>Usuario PAMI</span>
+              <input id="usuario" name="usuario" type="text" autocomplete="username" required />
+            </label>
+            <label class="field">
+              <span>Contrasena</span>
+              <input id="password" name="password" type="password" autocomplete="current-password" required />
+            </label>
+          </div>
+
+          <div class="form-grid">
+            <label class="field">
+              <span>URL de login</span>
+              <input id="loginUrl" name="loginUrl" type="url" required />
+            </label>
+            <label class="field">
+              <span>URL del formulario</span>
+              <input id="formUrl" name="formUrl" type="url" required />
+            </label>
+          </div>
+
+          <div class="form-grid">
+            <label class="field">
+              <span>Canal del navegador</span>
+              <select id="browserChannel" name="browserChannel">
+                <option value="msedge">Microsoft Edge</option>
+                <option value="chrome">Google Chrome</option>
+              </select>
+            </label>
+            <label class="field field--checkbox">
+              <span>Modo headless</span>
+              <input id="headless" name="headless" type="checkbox" />
+              <small>Activarlo deja el navegador oculto durante la carga.</small>
+            </label>
+          </div>
+
+          <div class="form-grid">
+            <label class="field">
+              <span>Motivo fijo</span>
+              <input id="motivo" name="motivo" type="text" required />
+            </label>
+            <label class="field">
+              <span>Diagnostico fijo</span>
+              <input id="diagnostico" name="diagnostico" type="text" required />
+            </label>
+          </div>
+
+          <div class="form-grid">
+            <label class="field">
+              <span>Practica fija</span>
+              <input id="practica" name="practica" type="text" required />
+            </label>
+            <label class="field">
+              <span>Modalidad fija</span>
+              <input id="modalidad" name="modalidad" type="text" required />
+            </label>
+          </div>
+
+          <label class="field">
+            <span>Texto de documentacion</span>
+            <input id="docsTypeText" name="docsTypeText" type="text" required />
+          </label>
+
+          <label class="field">
+            <span>Carpeta de pacientes</span>
+            <input id="patientsFolder" name="patientsFolder" type="file" webkitdirectory directory multiple required />
+            <small id="folderHint">Selecciona la carpeta raiz que contiene las subcarpetas de cada paciente.</small>
+          </label>
+
+          <div class="inspection-box">
+            <div class="inspection-box__header">
+              <h3>Validacion previa</h3>
+              <p>Lee los DOCX y revisa si cada afiliado tiene PDF antes de ejecutar el bot.</p>
+            </div>
+            <p id="inspectionSummary" class="inspection-summary">
+              Todavia no validaste la carpeta seleccionada.
+            </p>
+            <div id="inspectionList" class="inspection-list" hidden></div>
+          </div>
+
+          <details class="advanced">
+            <summary>Configuracion avanzada de selectores</summary>
+            <label class="field">
+              <span>JSON avanzado</span>
+              <textarea id="advancedJson" name="advancedJson" rows="18"></textarea>
+            </label>
+          </details>
+
+          <div class="actions">
+            <button id="inspectButton" type="button" class="button-secondary">Validar carpeta</button>
+            <button id="runButton" type="submit">Iniciar bot</button>
+            <p id="formMessage" class="form-message"></p>
+          </div>
+        </form>
+
+        <section class="panel panel--logs">
+          <div class="panel__header">
+            <h2>Seguimiento</h2>
+            <p>Aca vas a ver el progreso, errores y resultados del bot en vivo.</p>
+          </div>
+          <div id="logStream" class="log-stream" aria-live="polite"></div>
+        </section>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

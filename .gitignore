@@ -1,0 +1,4 @@
+node_modules/
+storage/
+.tmp_bot/
+npm-debug.log*
