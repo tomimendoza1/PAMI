@@ -400,102 +400,131 @@ async function selectByBestText(page, selector, text) {
 
 async function selectDocumentacionOption(page, selector, targetText) {
   await page.waitForSelector(selector, { timeout: 15000 });
-  const selectedText = await page.evaluate(
-    ({ selector: cssSelector, text: desiredText }) => {
-      const normalize = (value) =>
-        String(value || "")
-          .toLowerCase()
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "")
-          .replace(/[^\w\s/+.-]/g, " ")
-          .replace(/\s+/g, " ")
-          .trim();
+  const timeout = 15000;
+  const startedAt = Date.now();
+  let lastOptions = [];
 
-      const containsAny = (text, needles) => needles.some((needle) => text.includes(needle));
+  while (Date.now() - startedAt < timeout) {
+    const result = await page.evaluate(
+      ({ selector: cssSelector, text: desiredText }) => {
+        const normalize = (value) =>
+          String(value || "")
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/[^\w\s/+.-]/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
 
-      const select = document.querySelector(cssSelector);
-      if (!select) {
-        throw new Error(`No se encontro el select ${cssSelector}`);
-      }
+        const containsAny = (text, needles) => needles.some((needle) => text.includes(needle));
 
-      const wanted = normalize(desiredText);
-      const options = Array.from(select.options)
-        .map((option, index) => ({
-          index,
-          value: option.value,
-          text: String(option.textContent || "").trim(),
-          normalized: normalize(option.textContent || "")
-        }))
-        .filter((option) => option.value && option.normalized);
-
-      if (!options.length) {
-        throw new Error("El select de documentacion no tiene opciones utilizables.");
-      }
-
-      let choice = options.find((option) => option.normalized === wanted);
-
-      if (!choice) {
-        const desiredTokens = wanted.split(" ").filter((token) => token.length >= 4);
-        const scored = options
-          .map((option) => {
-            let score = 0;
-
-            if (option.normalized.includes(wanted) || wanted.includes(option.normalized)) {
-              score += 1000;
-            }
-
-            for (const token of desiredTokens) {
-              if (option.normalized.includes(token)) {
-                score += 10;
-              }
-            }
-
-            if (containsAny(option.normalized, ["audiometr"])) {
-              score += 80;
-            }
-            if (containsAny(option.normalized, ["logoaudiometr"])) {
-              score += 80;
-            }
-            if (containsAny(option.normalized, ["timpanometr"])) {
-              score += 80;
-            }
-            if (containsAny(option.normalized, ["impedanciometr"])) {
-              score += 80;
-            }
-            if (containsAny(option.normalized, ["derivacion"])) {
-              score += 80;
-            }
-            if (containsAny(option.normalized, ["orl"])) {
-              score += 80;
-            }
-
-            return {
-              ...option,
-              score
-            };
-          })
-          .sort((a, b) => b.score - a.score || a.index - b.index);
-
-        choice = scored[0];
-        if (!choice || choice.score < 300) {
-          throw new Error(`No se encontro una opcion confiable para "${desiredText}".`);
+        const select = document.querySelector(cssSelector);
+        if (!select) {
+          throw new Error(`No se encontro el select ${cssSelector}`);
         }
-      }
 
-      const expectedTokens = ["audiometr", "logoaudiometr", "timpanometr", "impedanciometr", "derivacion", "orl"];
-      if (!expectedTokens.every((token) => choice.normalized.includes(token))) {
-        throw new Error(`La opcion encontrada no coincide con la documentacion esperada: "${choice.text}"`);
-      }
+        const wanted = normalize(desiredText);
+        const options = Array.from(select.options)
+          .map((option, index) => ({
+            index,
+            value: option.value,
+            text: String(option.textContent || "").trim(),
+            normalized: normalize(option.textContent || "")
+          }))
+          .filter((option) => option.normalized);
 
-      select.selectedIndex = choice.index;
-      select.dispatchEvent(new Event("input", { bubbles: true }));
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-      return choice.text;
-    },
-    { selector, text: targetText }
+        if (!options.length) {
+          return {
+            selectedText: "",
+            options: []
+          };
+        }
+
+        let choice = options.find((option) => option.normalized === wanted);
+
+        if (!choice) {
+          const desiredTokens = wanted.split(" ").filter((token) => token.length >= 4);
+          const scored = options
+            .map((option) => {
+              let score = 0;
+
+              if (option.normalized.includes(wanted) || wanted.includes(option.normalized)) {
+                score += 1000;
+              }
+
+              for (const token of desiredTokens) {
+                if (option.normalized.includes(token)) {
+                  score += 10;
+                }
+              }
+
+              if (containsAny(option.normalized, ["audiometr"])) {
+                score += 80;
+              }
+              if (containsAny(option.normalized, ["logoaudiometr"])) {
+                score += 80;
+              }
+              if (containsAny(option.normalized, ["timpanometr"])) {
+                score += 80;
+              }
+              if (containsAny(option.normalized, ["impedanciometr"])) {
+                score += 80;
+              }
+              if (containsAny(option.normalized, ["derivacion"])) {
+                score += 80;
+              }
+              if (containsAny(option.normalized, ["orl"])) {
+                score += 80;
+              }
+
+              return {
+                ...option,
+                score
+              };
+            })
+            .sort((a, b) => b.score - a.score || a.index - b.index);
+
+          choice = scored[0];
+          if (!choice || choice.score < 300) {
+            return {
+              selectedText: "",
+              options: options.map((option) => option.text)
+            };
+          }
+        }
+
+        const expectedTokens = ["audiometr", "logoaudiometr", "timpanometr", "impedanciometr", "derivacion", "orl"];
+        if (!expectedTokens.every((token) => choice.normalized.includes(token))) {
+          return {
+            selectedText: "",
+            options: options.map((option) => option.text)
+          };
+        }
+
+        select.selectedIndex = choice.index;
+        select.dispatchEvent(new Event("input", { bubbles: true }));
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        return {
+          selectedText: choice.text,
+          options: options.map((option) => option.text)
+        };
+      },
+      { selector, text: targetText }
+    );
+
+    lastOptions = result.options || [];
+    if (result.selectedText) {
+      return String(result.selectedText || "").trim();
+    }
+
+    await sleep(250);
+  }
+
+  throw new Error(
+    `No se encontro una opcion de documentacion utilizable. Opciones visibles: ${
+      lastOptions.slice(0, 12).join(" | ") || "ninguna"
+    }`
   );
-
-  return String(selectedText || "").trim();
 }
 
 async function asegurarNroBeneficio(page) {
