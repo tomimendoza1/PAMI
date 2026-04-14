@@ -1,8 +1,20 @@
+const isWindows = process.platform === "win32";
+
+function readBoolEnv(name, fallback) {
+  const raw = process.env[name];
+  if (raw == null || raw === "") {
+    return fallback;
+  }
+
+  return !["0", "false", "no", "off"].includes(String(raw).toLowerCase());
+}
+
 const defaultSettings = {
-  loginUrl: "https://efectores.pami.org.ar/pami_efectores/login.php",
-  formUrl: "https://efectores.pami.org.ar/pami_nc/OP/op_cargar_solicitud.php?xgap_historial=reset",
-  browserChannel: "msedge",
-  headless: false,
+  loginUrl: process.env.PAMI_LOGIN_URL || "https://efectores.pami.org.ar/pami_efectores/login.php",
+  formUrl:
+    process.env.PAMI_FORM_URL || "https://efectores.pami.org.ar/pami_nc/OP/op_cargar_solicitud.php?xgap_historial=reset",
+  browserChannel: process.env.PAMI_BROWSER_CHANNEL ?? (isWindows ? "msedge" : ""),
+  headless: readBoolEnv("PAMI_HEADLESS", !isWindows),
   docsTypeText:
     "AUDIOMETRIA / LOGOAUDIOMETRIA / TIMPANOMETRIA / IMPEDANCIOMETRIA + DERIVACION DEL ESPECIALISTA EN ORL",
   credentials: {

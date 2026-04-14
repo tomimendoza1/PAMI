@@ -14,13 +14,19 @@ const upload = multer({
   }
 });
 
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3000;
 const jobs = new Map();
 let activeJobId = null;
 
-const STORAGE_DIR = path.join(__dirname, "storage");
+const STORAGE_DIR = path.resolve(process.env.STORAGE_DIR || path.join(__dirname, "storage"));
 const JOBS_DIR = path.join(STORAGE_DIR, "jobs");
 fs.mkdirSync(JOBS_DIR, { recursive: true });
+
+function appendCorsHeaders(res) {
+  res.setHeader("Access-Control-Allow-Origin", process.env.CORS_ORIGIN || "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+}
 
 function sanitizeRelativePath(relativePath) {
   const normalized = path.normalize(String(relativePath || "").replace(/^([/\\]+)/, ""));
@@ -164,6 +170,13 @@ async function executeJob(job) {
 }
 
 app.use(express.json({ limit: "1mb" }));
+app.use((req, res, next) => {
+  appendCorsHeaders(res);
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
+  return next();
+});
 app.use(express.static(path.join(__dirname, "public")));
 
 app.get("/api/health", (_req, res) => {

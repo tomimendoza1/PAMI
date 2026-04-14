@@ -1,6 +1,9 @@
 # PAMI Bot Web
 
-Aplicacion web local para ejecutar el bot de ordenes de prestaciones de PAMI desde una interfaz simple. La app toma la logica del script original, permite subir la carpeta de pacientes desde el navegador y muestra el avance en tiempo real.
+Aplicacion web para ejecutar el bot de ordenes de prestaciones de PAMI desde una interfaz simple. El proyecto queda preparado para dos escenarios:
+
+- `Railway`: backend completo con Express, uploads, logs en vivo y Playwright.
+- `Vercel`: frontend estatico que consume la API desplegada en Railway.
 
 ## Que hace
 
@@ -28,7 +31,7 @@ pacientes/
 
 Tambien funciona si elegis una carpeta contenedora y adentro hay una unica carpeta raiz con esa estructura.
 
-## Como levantarlo
+## Uso local
 
 1. Instala dependencias:
 
@@ -49,20 +52,83 @@ $env:PORT=3001
 npm start
 ```
 
-3. Abri [http://localhost:3000](http://localhost:3000)
+3. Abri `http://localhost:3000`
+
+## Railway
+
+En Railway va el backend completo. El repo ya incluye `Dockerfile`, asi que podes desplegarlo directo como servicio.
+
+### Variables recomendadas
+
+- `PORT`
+  Railway la define automaticamente.
+- `STORAGE_DIR=/data/storage`
+  Recomendado si montas un volumen.
+- `CORS_ORIGIN=*`
+  Para permitir que el frontend en Vercel consuma la API.
+- `PAMI_HEADLESS=true`
+  Ya viene asi por defecto en Linux.
+- `PAMI_BROWSER_CHANNEL=`
+  Vacio para usar Chromium incluido en la imagen de Playwright.
+
+### Volumen
+
+Si queres conservar capturas y archivos de trabajos entre deploys, monta un volumen y usalo en `STORAGE_DIR`, por ejemplo:
+
+- mount path: `/data`
+- env: `STORAGE_DIR=/data/storage`
+
+### URL publica
+
+Cuando Railway te asigne una URL publica, guardala porque la vas a usar en Vercel como `PAMI_API_BASE_URL`.
+
+## Vercel
+
+En Vercel va solo el frontend estatico. No despliegues ahi el backend del bot.
+
+### Variable requerida
+
+- `PAMI_API_BASE_URL`
+  Debe apuntar a tu backend en Railway, por ejemplo:
+
+```text
+https://tu-app-production.up.railway.app
+```
+
+### Build
+
+El proyecto ya queda listo con:
+
+- `vercel.json`
+- `npm run build:vercel`
+- salida estatica en `dist/vercel`
+
+Vercel va a servir la UI y esa UI va a hablar con Railway usando la URL que pongas en `PAMI_API_BASE_URL`.
+
+## Variables opcionales del backend
+
+- `PAMI_LOGIN_URL`
+- `PAMI_FORM_URL`
+- `PAMI_BROWSER_CHANNEL`
+- `PAMI_HEADLESS`
+- `STORAGE_DIR`
+- `CORS_ORIGIN`
 
 ## Notas importantes
 
-- El proyecto usa `playwright-core` con canal `msedge` por defecto para aprovechar Microsoft Edge instalado en Windows sin descargar Chromium aparte.
-- Si preferis usar Chrome, podes cambiarlo desde la interfaz.
+- En Windows local la app usa `msedge` por defecto.
+- En Linux y Railway usa Chromium integrado por defecto.
 - Las credenciales no quedan hardcodeadas en el repositorio.
-- Los archivos subidos y las capturas de error se guardan en `storage/jobs/<job-id>/`.
 - Tenes un chequeo liviano del servidor en `GET /api/health`.
 - Tenes una validacion previa en `POST /api/jobs/inspect` y en el boton `Validar carpeta` de la interfaz.
+- Si desplegas frontend y backend en dominios distintos, el backend necesita `CORS_ORIGIN` habilitado.
 
 ## Archivos principales
 
 - [server.js](/C:/Users/mendo/OneDrive/Documentos/GitHub/PAMI/server.js)
 - [src/bot/pami-bot.js](/C:/Users/mendo/OneDrive/Documentos/GitHub/PAMI/src/bot/pami-bot.js)
+- [src/default-config.js](/C:/Users/mendo/OneDrive/Documentos/GitHub/PAMI/src/default-config.js)
 - [public/index.html](/C:/Users/mendo/OneDrive/Documentos/GitHub/PAMI/public/index.html)
 - [public/app.js](/C:/Users/mendo/OneDrive/Documentos/GitHub/PAMI/public/app.js)
+- [scripts/build-vercel.js](/C:/Users/mendo/OneDrive/Documentos/GitHub/PAMI/scripts/build-vercel.js)
+- [Dockerfile](/C:/Users/mendo/OneDrive/Documentos/GitHub/PAMI/Dockerfile)

@@ -18,7 +18,9 @@ function mergeSettings(base, overrides) {
 
   next.loginUrl = src.loginUrl || next.loginUrl;
   next.formUrl = src.formUrl || next.formUrl;
-  next.browserChannel = src.browserChannel || next.browserChannel;
+  if (typeof src.browserChannel === "string") {
+    next.browserChannel = src.browserChannel;
+  }
   next.headless = typeof src.headless === "boolean" ? src.headless : next.headless;
   next.docsTypeText = src.docsTypeText || next.docsTypeText;
   next.credentials = {

@@ -9,10 +9,16 @@ const jobSummary = document.querySelector("#jobSummary");
 const folderHint = document.querySelector("#folderHint");
 const inspectionSummary = document.querySelector("#inspectionSummary");
 const inspectionList = document.querySelector("#inspectionList");
+const runtimeConfig = window.__PAMI_RUNTIME_CONFIG__ || {};
+const apiBaseUrl = String(runtimeConfig.apiBaseUrl || "").replace(/\/+$/, "");
 
 let activeSource = null;
 let isRunning = false;
 let isInspecting = false;
+
+function apiUrl(path) {
+  return apiBaseUrl ? `${apiBaseUrl}${path}` : path;
+}
 
 function addLog(message, level = "info", at = new Date().toISOString()) {
   const line = document.createElement("p");
@@ -186,7 +192,7 @@ function buildUploadBody(files, settings) {
 }
 
 async function loadDefaults() {
-  const response = await fetch("/api/default-settings");
+  const response = await fetch(apiUrl("/api/default-settings"));
   const defaults = await response.json();
 
   document.querySelector("#loginUrl").value = defaults.loginUrl;
@@ -213,7 +219,7 @@ function connectToStream(id) {
     activeSource.close();
   }
 
-  activeSource = new EventSource(`/api/jobs/${id}/stream`);
+  activeSource = new EventSource(apiUrl(`/api/jobs/${id}/stream`));
 
   activeSource.addEventListener("snapshot", (event) => {
     const snapshot = JSON.parse(event.data);
@@ -281,11 +287,10 @@ inspectButton.addEventListener("click", async () => {
     clearInspection();
     addLog("Validando carpeta de pacientes...");
 
-    const response = await fetch("/api/jobs/inspect", {
+    const response = await fetch(apiUrl("/api/jobs/inspect"), {
       method: "POST",
       body: buildUploadBody(files, { ...buildSettings(), ...advanced })
     });
-
     const payload = await response.json();
     if (!response.ok) {
       throw new Error(payload.error || "No se pudo validar la carpeta.");
@@ -337,7 +342,7 @@ form.addEventListener("submit", async (event) => {
     resetLogs();
     addLog("Subiendo archivos y preparando la ejecucion...");
 
-    const response = await fetch("/api/jobs/start", {
+    const response = await fetch(apiUrl("/api/jobs/start"), {
       method: "POST",
       body
     });
