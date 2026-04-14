@@ -65,7 +65,7 @@ En Railway va el backend completo. El repo ya incluye `Dockerfile`, asi que pode
 - `STORAGE_DIR=/data/storage`
   Recomendado si montas un volumen.
 - `CORS_ORIGIN=https://tu-frontend.vercel.app`
-  Recomendado si usas login y cookies entre Vercel y Railway.
+  Necesario si el frontend en Vercel va a consumir la API en Railway.
 - `PAMI_HEADLESS=true`
   Ya viene asi por defecto en Linux.
 - `PAMI_BROWSER_CHANNEL=`
@@ -74,7 +74,7 @@ En Railway va el backend completo. El repo ya incluye `Dockerfile`, asi que pode
 - `PAMI_WEB_PASSWORD`
 - `PAMI_AUTH_SECRET`
 - `PAMI_AUTH_SAME_SITE=None`
-  Necesario si el frontend vive en Vercel y la API en Railway.
+  Recomendado si queres mantener compatibilidad con cookie de sesion.
 
 ### Volumen
 
@@ -128,10 +128,11 @@ Vercel va a servir la UI y esa UI va a hablar con Railway usando la URL que pong
 - En Windows local la app usa `msedge` por defecto.
 - En Linux y Railway usa Chromium integrado por defecto.
 - Si defines `PAMI_WEB_USERNAME` y `PAMI_WEB_PASSWORD`, la web queda protegida con login.
+- El login usa token de sesion firmado y tambien puede dejar cookie como respaldo.
 - Las credenciales no quedan hardcodeadas en el repositorio.
 - Tenes un chequeo liviano del servidor en `GET /api/health`.
 - Tenes una validacion previa en `POST /api/jobs/inspect` y en el boton `Validar carpeta` de la interfaz.
-- Si despliegas frontend y backend en dominios distintos, usa `CORS_ORIGIN` con el dominio exacto del frontend y `PAMI_AUTH_SAME_SITE=None`.
+- Si despliegas frontend y backend en dominios distintos, usa `CORS_ORIGIN` con el dominio exacto del frontend.
 
 ## Archivos principales
 

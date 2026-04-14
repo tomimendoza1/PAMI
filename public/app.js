@@ -17,19 +17,27 @@ const inspectionSummary = document.querySelector("#inspectionSummary");
 const inspectionList = document.querySelector("#inspectionList");
 const runtimeConfig = window.__PAMI_RUNTIME_CONFIG__ || {};
 const apiBaseUrl = String(runtimeConfig.apiBaseUrl || "").replace(/\/+$/, "");
+const authStorageKey = "pami_web_token";
 
 let activeSource = null;
 let isRunning = false;
 let isInspecting = false;
 let isAuthenticating = false;
+let authToken = localStorage.getItem(authStorageKey) || "";
 
 function apiUrl(path) {
   return apiBaseUrl ? `${apiBaseUrl}${path}` : path;
 }
 
 async function apiFetch(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  if (authToken) {
+    headers.set("Authorization", `Bearer ${authToken}`);
+  }
+
   const nextOptions = {
     credentials: "include",
+    headers,
     ...options
   };
 
@@ -262,7 +270,12 @@ function connectToStream(id) {
     activeSource.close();
   }
 
-  activeSource = new EventSource(apiUrl(`/api/jobs/${id}/stream`), { withCredentials: true });
+  const streamUrl = new URL(apiUrl(`/api/jobs/${id}/stream`), window.location.href);
+  if (authToken) {
+    streamUrl.searchParams.set("auth", authToken);
+  }
+
+  activeSource = new EventSource(streamUrl.toString(), { withCredentials: true });
 
   activeSource.addEventListener("snapshot", (event) => {
     const snapshot = JSON.parse(event.data);
@@ -428,6 +441,13 @@ authForm.addEventListener("submit", async (event) => {
       throw new Error(payload.error || "No se pudo iniciar sesion.");
     }
 
+    authToken = String(payload.token || "");
+    if (authToken) {
+      localStorage.setItem(authStorageKey, authToken);
+    } else {
+      localStorage.removeItem(authStorageKey);
+    }
+
     await initializeApp();
   } catch (error) {
     authMessage.textContent = error.message;
@@ -447,14 +467,25 @@ logoutButton.addEventListener("click", async () => {
     method: "POST"
   }).catch(() => null);
 
+  authToken = "";
+  localStorage.removeItem(authStorageKey);
   showAuthScreen();
   authMessage.textContent = "";
   resetLogs();
 });
 
 async function initializeApp() {
-  const { payload } = await apiJson("/api/auth/status");
+  const { response, payload } = await apiJson("/api/auth/status");
+  if (!response.ok) {
+    authToken = "";
+    localStorage.removeItem(authStorageKey);
+    showAuthScreen();
+    return;
+  }
+
   if (payload.enabled && !payload.authenticated) {
+    authToken = "";
+    localStorage.removeItem(authStorageKey);
     showAuthScreen();
     return;
   }

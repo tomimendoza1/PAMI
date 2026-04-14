@@ -134,8 +134,26 @@ function verifySessionCookieValue(value) {
   }
 }
 
+function extractBearerToken(req) {
+  const authHeader = String(req.headers.authorization || "");
+  if (authHeader.toLowerCase().startsWith("bearer ")) {
+    return authHeader.slice(7).trim();
+  }
+
+  if (req.query && typeof req.query.auth === "string" && req.query.auth.trim()) {
+    return req.query.auth.trim();
+  }
+
+  return "";
+}
+
 function isAuthenticated(req) {
   if (!AUTH_ENABLED) {
+    return true;
+  }
+
+  const bearerToken = extractBearerToken(req);
+  if (verifySessionCookieValue(bearerToken)) {
     return true;
   }
 
@@ -367,10 +385,12 @@ app.post("/api/auth/login", (req, res) => {
     });
   }
 
-  setSessionCookie(res, createSessionCookieValue(username));
+  const token = createSessionCookieValue(username);
+  setSessionCookie(res, token);
   return res.json({
     enabled: true,
-    authenticated: true
+    authenticated: true,
+    token
   });
 });
 
