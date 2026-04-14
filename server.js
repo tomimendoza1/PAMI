@@ -2,7 +2,7 @@ const express = require("express");
 const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
-const { randomUUID } = require("crypto");
+const { createHmac, randomUUID, timingSafeEqual } = require("crypto");
 const { runPamiBot, inspectPatientsInput, defaultSettings } = require("./src/bot/pami-bot");
 
 const app = express();
@@ -17,15 +17,172 @@ const upload = multer({
 const PORT = process.env.PORT || 3000;
 const jobs = new Map();
 let activeJobId = null;
+const AUTH_USERNAME = process.env.PAMI_WEB_USERNAME || process.env.APP_USERNAME || "";
+const AUTH_PASSWORD = process.env.PAMI_WEB_PASSWORD || process.env.APP_PASSWORD || "";
+const AUTH_ENABLED = Boolean(AUTH_USERNAME && AUTH_PASSWORD);
+const AUTH_COOKIE_NAME = "pami_session";
+const AUTH_SESSION_TTL_MS = 1000 * 60 * 60 * 12;
+const AUTH_SECRET = process.env.PAMI_AUTH_SECRET || `${AUTH_USERNAME}:${AUTH_PASSWORD}:pami-web`;
+const CORS_ORIGIN_CONFIG = process.env.CORS_ORIGIN || "";
 
 const STORAGE_DIR = path.resolve(process.env.STORAGE_DIR || path.join(__dirname, "storage"));
 const JOBS_DIR = path.join(STORAGE_DIR, "jobs");
 fs.mkdirSync(JOBS_DIR, { recursive: true });
 
-function appendCorsHeaders(res) {
-  res.setHeader("Access-Control-Allow-Origin", process.env.CORS_ORIGIN || "*");
+function parseOriginList(rawValue) {
+  return String(rawValue || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function getAllowedOrigin(origin) {
+  if (!origin) {
+    return null;
+  }
+
+  const allowedOrigins = parseOriginList(CORS_ORIGIN_CONFIG);
+  if (!allowedOrigins.length) {
+    return origin;
+  }
+
+  if (allowedOrigins.includes("*")) {
+    return origin;
+  }
+
+  return allowedOrigins.includes(origin) ? origin : null;
+}
+
+function appendCorsHeaders(req, res) {
+  const allowedOrigin = getAllowedOrigin(req.headers.origin);
+  if (allowedOrigin) {
+    res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
+    res.setHeader("Vary", "Origin");
+  }
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+}
+
+function parseCookies(req) {
+  const cookieHeader = req.headers.cookie || "";
+  return cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .reduce((cookies, part) => {
+      const separatorIndex = part.indexOf("=");
+      if (separatorIndex < 0) {
+        return cookies;
+      }
+
+      const key = part.slice(0, separatorIndex).trim();
+      const value = part.slice(separatorIndex + 1).trim();
+      cookies[key] = decodeURIComponent(value);
+      return cookies;
+    }, {});
+}
+
+function toBase64Url(value) {
+  return Buffer.from(value).toString("base64url");
+}
+
+function fromBase64Url(value) {
+  return Buffer.from(value, "base64url").toString("utf8");
+}
+
+function signValue(value) {
+  return createHmac("sha256", AUTH_SECRET).update(value).digest("base64url");
+}
+
+function createSessionCookieValue(username) {
+  const payload = toBase64Url(
+    JSON.stringify({
+      username,
+      exp: Date.now() + AUTH_SESSION_TTL_MS
+    })
+  );
+  const signature = signValue(payload);
+  return `${payload}.${signature}`;
+}
+
+function verifySessionCookieValue(value) {
+  if (!value || !AUTH_ENABLED) {
+    return null;
+  }
+
+  const [payload, signature] = String(value).split(".");
+  if (!payload || !signature) {
+    return null;
+  }
+
+  const expectedSignature = signValue(payload);
+  const expectedBuffer = Buffer.from(expectedSignature);
+  const providedBuffer = Buffer.from(signature);
+  if (expectedBuffer.length !== providedBuffer.length || !timingSafeEqual(expectedBuffer, providedBuffer)) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(fromBase64Url(payload));
+    if (!parsed || parsed.username !== AUTH_USERNAME || Number(parsed.exp) <= Date.now()) {
+      return null;
+    }
+    return parsed;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function isAuthenticated(req) {
+  if (!AUTH_ENABLED) {
+    return true;
+  }
+
+  const cookies = parseCookies(req);
+  return Boolean(verifySessionCookieValue(cookies[AUTH_COOKIE_NAME]));
+}
+
+function buildCookieOptions() {
+  const secure = process.env.NODE_ENV === "production";
+  const sameSite = process.env.PAMI_AUTH_SAME_SITE || (process.env.CORS_ORIGIN ? "None" : "Lax");
+  const parts = [
+    `${AUTH_COOKIE_NAME}=`,
+    "Path=/",
+    "HttpOnly",
+    `Max-Age=${Math.floor(AUTH_SESSION_TTL_MS / 1000)}`,
+    `SameSite=${sameSite}`
+  ];
+
+  if (secure || String(sameSite).toLowerCase() === "none") {
+    parts.push("Secure");
+  }
+
+  return parts;
+}
+
+function setSessionCookie(res, value) {
+  const parts = buildCookieOptions();
+  parts[0] = `${AUTH_COOKIE_NAME}=${encodeURIComponent(value)}`;
+  res.setHeader("Set-Cookie", parts.join("; "));
+}
+
+function clearSessionCookie(res) {
+  const parts = buildCookieOptions();
+  parts[0] = `${AUTH_COOKIE_NAME}=`;
+  parts.push("Expires=Thu, 01 Jan 1970 00:00:00 GMT");
+  res.setHeader("Set-Cookie", parts.join("; "));
+}
+
+function requireAuth(req, res, next) {
+  if (isAuthenticated(req)) {
+    return next();
+  }
+
+  return res.status(401).json({
+    error: "Sesion requerida.",
+    code: "AUTH_REQUIRED"
+  });
 }
 
 function sanitizeRelativePath(relativePath) {
@@ -171,7 +328,7 @@ async function executeJob(job) {
 
 app.use(express.json({ limit: "1mb" }));
 app.use((req, res, next) => {
-  appendCorsHeaders(res);
+  appendCorsHeaders(req, res);
   if (req.method === "OPTIONS") {
     return res.status(204).end();
   }
@@ -184,6 +341,51 @@ app.get("/api/health", (_req, res) => {
     ok: true,
     activeJobId
   });
+});
+
+app.get("/api/auth/status", (req, res) => {
+  res.json({
+    enabled: AUTH_ENABLED,
+    authenticated: isAuthenticated(req)
+  });
+});
+
+app.post("/api/auth/login", (req, res) => {
+  if (!AUTH_ENABLED) {
+    return res.json({
+      enabled: false,
+      authenticated: true
+    });
+  }
+
+  const { username = "", password = "" } = req.body || {};
+  if (username !== AUTH_USERNAME || password !== AUTH_PASSWORD) {
+    clearSessionCookie(res);
+    return res.status(401).json({
+      error: "Usuario o contrasena incorrectos.",
+      code: "INVALID_CREDENTIALS"
+    });
+  }
+
+  setSessionCookie(res, createSessionCookieValue(username));
+  return res.json({
+    enabled: true,
+    authenticated: true
+  });
+});
+
+app.post("/api/auth/logout", (_req, res) => {
+  clearSessionCookie(res);
+  res.json({
+    ok: true
+  });
+});
+
+app.use("/api", (req, res, next) => {
+  if (req.path === "/health" || req.path.startsWith("/auth/")) {
+    return next();
+  }
+  return requireAuth(req, res, next);
 });
 
 app.get("/api/default-settings", (_req, res) => {

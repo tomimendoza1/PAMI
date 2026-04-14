@@ -1,3 +1,9 @@
+const authGate = document.querySelector("#authGate");
+const appShell = document.querySelector("#appShell");
+const authForm = document.querySelector("#authForm");
+const authButton = document.querySelector("#authButton");
+const authMessage = document.querySelector("#authMessage");
+const logoutButton = document.querySelector("#logoutButton");
 const form = document.querySelector("#jobForm");
 const runButton = document.querySelector("#runButton");
 const inspectButton = document.querySelector("#inspectButton");
@@ -15,9 +21,44 @@ const apiBaseUrl = String(runtimeConfig.apiBaseUrl || "").replace(/\/+$/, "");
 let activeSource = null;
 let isRunning = false;
 let isInspecting = false;
+let isAuthenticating = false;
 
 function apiUrl(path) {
   return apiBaseUrl ? `${apiBaseUrl}${path}` : path;
+}
+
+async function apiFetch(path, options = {}) {
+  const nextOptions = {
+    credentials: "include",
+    ...options
+  };
+
+  return fetch(apiUrl(path), nextOptions);
+}
+
+async function apiJson(path, options = {}) {
+  const response = await apiFetch(path, options);
+  const payload = await response.json().catch(() => ({}));
+  return {
+    response,
+    payload
+  };
+}
+
+function setAuthBusy(isBusy) {
+  isAuthenticating = isBusy;
+  authButton.disabled = isBusy;
+  authButton.textContent = isBusy ? "Ingresando..." : "Iniciar sesion";
+}
+
+function showAuthScreen() {
+  authGate.hidden = false;
+  appShell.hidden = true;
+}
+
+function showApp() {
+  authGate.hidden = true;
+  appShell.hidden = false;
 }
 
 function addLog(message, level = "info", at = new Date().toISOString()) {
@@ -192,8 +233,10 @@ function buildUploadBody(files, settings) {
 }
 
 async function loadDefaults() {
-  const response = await fetch(apiUrl("/api/default-settings"));
-  const defaults = await response.json();
+  const { response, payload: defaults } = await apiJson("/api/default-settings");
+  if (!response.ok) {
+    throw new Error(defaults.error || "No se pudo cargar la configuracion inicial.");
+  }
 
   document.querySelector("#loginUrl").value = defaults.loginUrl;
   document.querySelector("#formUrl").value = defaults.formUrl;
@@ -219,7 +262,7 @@ function connectToStream(id) {
     activeSource.close();
   }
 
-  activeSource = new EventSource(apiUrl(`/api/jobs/${id}/stream`));
+  activeSource = new EventSource(apiUrl(`/api/jobs/${id}/stream`), { withCredentials: true });
 
   activeSource.addEventListener("snapshot", (event) => {
     const snapshot = JSON.parse(event.data);
@@ -287,7 +330,7 @@ inspectButton.addEventListener("click", async () => {
     clearInspection();
     addLog("Validando carpeta de pacientes...");
 
-    const response = await fetch(apiUrl("/api/jobs/inspect"), {
+    const response = await apiFetch("/api/jobs/inspect", {
       method: "POST",
       body: buildUploadBody(files, { ...buildSettings(), ...advanced })
     });
@@ -342,7 +385,7 @@ form.addEventListener("submit", async (event) => {
     resetLogs();
     addLog("Subiendo archivos y preparando la ejecucion...");
 
-    const response = await fetch(apiUrl("/api/jobs/start"), {
+    const response = await apiFetch("/api/jobs/start", {
       method: "POST",
       body
     });
@@ -364,6 +407,63 @@ form.addEventListener("submit", async (event) => {
   }
 });
 
-loadDefaults().catch((error) => {
+authForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  authMessage.textContent = "";
+
+  try {
+    setAuthBusy(true);
+    const { response, payload } = await apiJson("/api/auth/login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        username: document.querySelector("#authUsername").value.trim(),
+        password: document.querySelector("#authPassword").value
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(payload.error || "No se pudo iniciar sesion.");
+    }
+
+    await initializeApp();
+  } catch (error) {
+    authMessage.textContent = error.message;
+  } finally {
+    setAuthBusy(false);
+  }
+});
+
+logoutButton.addEventListener("click", async () => {
+  formMessage.textContent = "";
+  if (activeSource) {
+    activeSource.close();
+    activeSource = null;
+  }
+
+  await apiJson("/api/auth/logout", {
+    method: "POST"
+  }).catch(() => null);
+
+  showAuthScreen();
+  authMessage.textContent = "";
+  resetLogs();
+});
+
+async function initializeApp() {
+  const { payload } = await apiJson("/api/auth/status");
+  if (payload.enabled && !payload.authenticated) {
+    showAuthScreen();
+    return;
+  }
+
+  showApp();
+  await loadDefaults();
+}
+
+initializeApp().catch((error) => {
+  showAuthScreen();
   formMessage.textContent = `No se pudo cargar la configuracion inicial: ${error.message}`;
 });

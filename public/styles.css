@@ -45,6 +45,36 @@ body::before {
   margin: 24px auto 40px;
 }
 
+.auth-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.auth-card {
+  width: min(460px, 100%);
+  padding: 32px;
+  border: 1px solid var(--panel-border);
+  border-radius: 28px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(12px);
+}
+
+.auth-card h1 {
+  margin: 0 0 10px;
+  font-size: clamp(1.8rem, 4vw, 2.6rem);
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.auth-copy {
+  margin: 0 0 20px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
 .hero {
   display: grid;
   grid-template-columns: 1.7fr 1fr;
@@ -333,6 +363,11 @@ button {
   background: rgba(255, 255, 255, 0.92);
   border: 1px solid rgba(14, 111, 92, 0.18);
   box-shadow: none;
+}
+
+.button-small {
+  padding: 10px 14px;
+  font-size: 0.9rem;
 }
 
 button:disabled {
