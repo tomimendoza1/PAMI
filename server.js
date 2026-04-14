@@ -203,6 +203,13 @@ function requireAuth(req, res, next) {
   });
 }
 
+function sendNoStoreJson(res, payload) {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  return res.json(payload);
+}
+
 function sanitizeRelativePath(relativePath) {
   const normalized = path.normalize(String(relativePath || "").replace(/^([/\\]+)/, ""));
   if (!normalized || normalized === "." || normalized.includes("..")) {
@@ -355,14 +362,14 @@ app.use((req, res, next) => {
 app.use(express.static(path.join(__dirname, "public")));
 
 app.get("/api/health", (_req, res) => {
-  res.json({
+  sendNoStoreJson(res, {
     ok: true,
     activeJobId
   });
 });
 
 app.get("/api/auth/status", (req, res) => {
-  res.json({
+  sendNoStoreJson(res, {
     enabled: AUTH_ENABLED,
     authenticated: isAuthenticated(req)
   });
@@ -370,7 +377,7 @@ app.get("/api/auth/status", (req, res) => {
 
 app.post("/api/auth/login", (req, res) => {
   if (!AUTH_ENABLED) {
-    return res.json({
+    return sendNoStoreJson(res, {
       enabled: false,
       authenticated: true
     });
@@ -387,7 +394,7 @@ app.post("/api/auth/login", (req, res) => {
 
   const token = createSessionCookieValue(username);
   setSessionCookie(res, token);
-  return res.json({
+  return sendNoStoreJson(res, {
     enabled: true,
     authenticated: true,
     token
@@ -396,7 +403,7 @@ app.post("/api/auth/login", (req, res) => {
 
 app.post("/api/auth/logout", (_req, res) => {
   clearSessionCookie(res);
-  res.json({
+  sendNoStoreJson(res, {
     ok: true
   });
 });
@@ -409,7 +416,7 @@ app.use("/api", (req, res, next) => {
 });
 
 app.get("/api/default-settings", (_req, res) => {
-  res.json(defaultSettings);
+  sendNoStoreJson(res, defaultSettings);
 });
 
 app.post("/api/jobs/inspect", upload.any(), async (req, res) => {
