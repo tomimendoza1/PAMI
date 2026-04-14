@@ -303,6 +303,101 @@ async function selectByText(page, selector, text) {
   return String(selectedText || "").trim();
 }
 
+async function selectByBestText(page, selector, text) {
+  await page.waitForSelector(selector, { timeout: 15000 });
+  const timeout = 15000;
+  const startedAt = Date.now();
+  let lastOptions = [];
+
+  while (Date.now() - startedAt < timeout) {
+    const result = await page.evaluate(
+      ({ selector: cssSelector, text: desiredText }) => {
+        const normalize = (value) =>
+          String(value || "")
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/[^\w\s/+.-]/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+
+        const select = document.querySelector(cssSelector);
+        if (!select) {
+          throw new Error(`No se encontro el select ${cssSelector}`);
+        }
+
+        const wanted = normalize(desiredText);
+        const desiredTokens = wanted.split(" ").filter((token) => token.length >= 4);
+        const options = Array.from(select.options)
+          .map((item, index) => ({
+            index,
+            value: item.value,
+            text: String(item.textContent || "").trim(),
+            normalized: normalize(item.textContent || "")
+          }))
+          .filter((item) => item.value && item.normalized);
+
+        const scored = options
+          .map((option) => {
+            let score = 0;
+
+            if (option.normalized === wanted) {
+              score += 5000;
+            }
+
+            if (option.normalized.includes(wanted) || wanted.includes(option.normalized)) {
+              score += 1000;
+            }
+
+            for (const token of desiredTokens) {
+              if (option.normalized.includes(token)) {
+                score += 20;
+              }
+            }
+
+            return {
+              ...option,
+              score
+            };
+          })
+          .sort((a, b) => b.score - a.score || a.index - b.index);
+
+        const best = scored[0] || null;
+        const minimumScore = desiredTokens.length > 1 ? 40 : 1000;
+
+        if (!best || best.score < minimumScore) {
+          return {
+            selectedText: "",
+            options: options.map((option) => option.text)
+          };
+        }
+
+        select.selectedIndex = best.index;
+        select.dispatchEvent(new Event("input", { bubbles: true }));
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+
+        return {
+          selectedText: best.text,
+          options: options.map((option) => option.text)
+        };
+      },
+      { selector, text }
+    );
+
+    lastOptions = result.options || [];
+    if (result.selectedText) {
+      return String(result.selectedText || "").trim();
+    }
+
+    await sleep(250);
+  }
+
+  const available = lastOptions.slice(0, 12).join(" | ");
+  throw new Error(
+    `No se encontro una opcion compatible para "${text}" en ${selector}. Opciones visibles: ${available || "ninguna"}`
+  );
+}
+
 async function selectDocumentacionOption(page, selector, targetText) {
   await page.waitForSelector(selector, { timeout: 15000 });
   const selectedText = await page.evaluate(
@@ -556,11 +651,11 @@ async function procesarPaciente(page, patient, patientFolder, settings) {
     await pressEnter(page, settings.selectors.telefonoNumero);
   }
 
-  await selectByText(page, settings.selectors.motivoSelect, settings.fixed.motivo);
+  await selectByBestText(page, settings.selectors.motivoSelect, settings.fixed.motivo);
   await typeLikeHuman(page, settings.selectors.diagnosticoInput, settings.fixed.diagnostico);
   await pressEnter(page, settings.selectors.diagnosticoInput);
   await clickAutocompleteSuggestion(page, settings.autocompleteSelectors, settings.fixed.diagnostico);
-  await selectByText(page, settings.selectors.modalidadSelect, settings.fixed.modalidad);
+  await selectByBestText(page, settings.selectors.modalidadSelect, settings.fixed.modalidad);
   await typeLikeHuman(page, settings.selectors.practicaInput, settings.fixed.practica);
   await pressEnter(page, settings.selectors.practicaInput);
   await clickAutocompleteSuggestion(page, settings.autocompleteSelectors, settings.fixed.practica);
