@@ -69,6 +69,11 @@ function showApp() {
   appShell.hidden = false;
 }
 
+async function bootAuthenticatedApp() {
+  showApp();
+  await loadDefaults();
+}
+
 function addLog(message, level = "info", at = new Date().toISOString()) {
   const line = document.createElement("p");
   const time = new Date(at).toLocaleTimeString("es-AR", {
@@ -442,13 +447,17 @@ authForm.addEventListener("submit", async (event) => {
     }
 
     authToken = String(payload.token || "");
+    if (payload.enabled && !authToken) {
+      throw new Error("El backend no devolvio un token de sesion valido.");
+    }
+
     if (authToken) {
       localStorage.setItem(authStorageKey, authToken);
     } else {
       localStorage.removeItem(authStorageKey);
     }
 
-    await initializeApp();
+    await bootAuthenticatedApp();
   } catch (error) {
     authMessage.textContent = error.message;
   } finally {
@@ -490,11 +499,10 @@ async function initializeApp() {
     return;
   }
 
-  showApp();
-  await loadDefaults();
+  await bootAuthenticatedApp();
 }
 
 initializeApp().catch((error) => {
   showAuthScreen();
-  formMessage.textContent = `No se pudo cargar la configuracion inicial: ${error.message}`;
+  authMessage.textContent = `No se pudo cargar la configuracion inicial: ${error.message}`;
 });
