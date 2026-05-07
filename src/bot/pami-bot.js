@@ -632,6 +632,12 @@ async function cargarDocumentacionPDF(page, patient, patientFolder, settings) {
     throw new Error(`No se encontró PDF para el afiliado ${patient.afiliado}.`);
   }
 
+  if (!(await hasUsableSelectOptions(page, settings.selectors.documentacionSelect))) {
+    await subirArchivoDocumentacion(page, filePath);
+    await page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => null);
+    await page.waitForTimeout(1000);
+  }
+
   await selectDocumentacionOption(page, settings.selectors.documentacionSelect, settings.docsTypeText);
   await subirArchivoDocumentacion(page, filePath);
   await page.click(settings.selectors.documentacionAgregarBtn);
