@@ -400,7 +400,7 @@ async function selectByBestText(page, selector, text) {
 
 async function selectDocumentacionOption(page, selector, targetText) {
   await page.waitForSelector(selector, { timeout: 15000 });
-  const timeout = 15000;
+  const timeout = 45000;
   const startedAt = Date.now();
   let lastOptions = [];
 
@@ -433,18 +433,22 @@ async function selectDocumentacionOption(page, selector, targetText) {
           }))
           .filter((option) => option.normalized);
 
-        if (!options.length) {
+        const selectableOptions = options.filter(
+          (option) => option.value && !["seleccione", "seleccione."].includes(option.normalized)
+        );
+
+        if (!selectableOptions.length) {
           return {
             selectedText: "",
-            options: []
+            options: options.map((option) => option.text)
           };
         }
 
-        let choice = options.find((option) => option.normalized === wanted);
+        let choice = selectableOptions.find((option) => option.normalized === wanted);
 
         if (!choice) {
           const desiredTokens = wanted.split(" ").filter((token) => token.length >= 4);
-          const scored = options
+          const scored = selectableOptions
             .map((option) => {
               let score = 0;
 
@@ -619,7 +623,8 @@ async function cargarNumeroOME(page, settings, ome) {
 async function agregarPractica(page) {
   await page.waitForSelector("#boton_datos_medicos", { timeout: 15000 });
   await page.click("#boton_datos_medicos");
-  await page.waitForTimeout(800);
+  await page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => null);
+  await page.waitForTimeout(1200);
 }
 
 async function generarYVolver(page, settings) {
