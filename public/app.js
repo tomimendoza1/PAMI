@@ -101,7 +101,15 @@ async function bootAuthenticatedApp() {
   await loadDefaults();
 }
 
-function addLog(message, level = "info", at = new Date().toISOString()) {
+function buildAuthenticatedUrl(path) {
+  const url = new URL(apiUrl(path), window.location.href);
+  if (authToken) {
+    url.searchParams.set("auth", authToken);
+  }
+  return url.toString();
+}
+
+function addLog(message, level = "info", at = new Date().toISOString(), screenshotUrl = "") {
   const line = document.createElement("p");
   const time = new Date(at).toLocaleTimeString("es-AR", {
     hour: "2-digit",
@@ -109,7 +117,18 @@ function addLog(message, level = "info", at = new Date().toISOString()) {
     second: "2-digit"
   });
   line.className = `log-line log-line--${level === "info" ? "ok" : level}`;
-  line.textContent = `[${time}] ${message}`;
+  line.append(document.createTextNode(`[${time}] ${message}`));
+
+  if (screenshotUrl) {
+    const link = document.createElement("a");
+    link.className = "log-line__link";
+    link.href = buildAuthenticatedUrl(screenshotUrl);
+    link.target = "_blank";
+    link.rel = "noreferrer";
+    link.textContent = "Ver captura";
+    line.append(" ", link);
+  }
+
   logStream.appendChild(line);
   logStream.scrollTop = logStream.scrollHeight;
 }
@@ -315,7 +334,7 @@ function connectToStream(id) {
     jobId.textContent = snapshot.id;
     setStatus(snapshot.status);
     setSummary(snapshot.summary, snapshot.error);
-    (snapshot.logs || []).forEach((entry) => addLog(entry.message, entry.level, entry.at));
+    (snapshot.logs || []).forEach((entry) => addLog(entry.message, entry.level, entry.at, entry.screenshotUrl));
     if (snapshot.status !== "running" && snapshot.status !== "queued") {
       setBusy(false);
     }
@@ -323,7 +342,7 @@ function connectToStream(id) {
 
   activeSource.addEventListener("log", (event) => {
     const entry = JSON.parse(event.data);
-    addLog(entry.message, entry.level, entry.at);
+    addLog(entry.message, entry.level, entry.at, entry.screenshotUrl);
   });
 
   activeSource.addEventListener("status", (event) => {

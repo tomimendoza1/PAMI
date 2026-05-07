@@ -415,6 +415,13 @@ button:disabled {
   color: #7ef7ba;
 }
 
+.log-line__link {
+  color: #d7f8ff;
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 @media (max-width: 960px) {
   .hero,
   .grid,

@@ -271,11 +271,37 @@ function appendLog(job, level, message) {
     at: new Date().toISOString()
   };
 
+  const screenshotPath = extractScreenshotPath(job, message);
+  if (screenshotPath) {
+    entry.screenshotUrl = `/api/jobs/${job.id}/screenshots/${encodeURIComponent(path.basename(screenshotPath))}`;
+  }
+
   job.logs.push(entry);
   broadcast(job, "log", entry);
 
   const print = level === "error" ? console.error : level === "warn" ? console.warn : console.log;
   print(`[${job.id}] ${message}`);
+}
+
+function extractScreenshotPath(job, message) {
+  const marker = "Captura:";
+  const markerIndex = String(message || "").indexOf(marker);
+  if (markerIndex < 0) {
+    return "";
+  }
+
+  const rawPath = String(message).slice(markerIndex + marker.length).trim();
+  if (!rawPath) {
+    return "";
+  }
+
+  const resolvedPath = path.resolve(rawPath);
+  const screenshotsDir = path.resolve(job.screenshotsDir);
+  if (!resolvedPath.startsWith(`${screenshotsDir}${path.sep}`)) {
+    return "";
+  }
+
+  return fs.existsSync(resolvedPath) ? resolvedPath : "";
 }
 
 function updateStatus(job, status, extra = {}) {
@@ -463,6 +489,23 @@ app.get("/api/jobs/:id", (req, res) => {
     error: job.error,
     logs: job.logs
   });
+});
+
+app.get("/api/jobs/:id/screenshots/:file", (req, res) => {
+  const job = jobs.get(req.params.id);
+  if (!job) {
+    return res.status(404).json({ error: "Trabajo no encontrado." });
+  }
+
+  const fileName = path.basename(req.params.file || "");
+  const targetPath = path.resolve(job.screenshotsDir, fileName);
+  const screenshotsDir = path.resolve(job.screenshotsDir);
+  if (!targetPath.startsWith(`${screenshotsDir}${path.sep}`) || !fs.existsSync(targetPath)) {
+    return res.status(404).json({ error: "Captura no encontrada." });
+  }
+
+  res.setHeader("Cache-Control", "no-store");
+  return res.sendFile(targetPath);
 });
 
 app.get("/api/jobs/:id/stream", (req, res) => {
