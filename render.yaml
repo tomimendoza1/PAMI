@@ -1,0 +1,33 @@
+services:
+  - type: web
+    runtime: docker
+    name: pami-bot-web
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    maxShutdownDelaySeconds: 300
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: STORAGE_DIR
+        value: /tmp/pami-storage
+      - key: CORS_ORIGIN
+        value: "*"
+      - key: PAMI_HEADLESS
+        value: "true"
+      - key: PAMI_BROWSER_CHANNEL
+        value: ""
+      - key: PAMI_AUTH_SAME_SITE
+        value: Lax
+      - key: PAMI_AUTH_SECRET
+        generateValue: true
+      - key: PAMI_WEB_USERNAME
+        sync: false
+      - key: PAMI_WEB_PASSWORD
+        sync: false
+      - key: PAMI_LOGIN_URL
+        value: https://efectores.pami.org.ar/pami_efectores/login.php
+      - key: PAMI_FORM_URL
+        value: https://efectores.pami.org.ar/pami_nc/OP/op_cargar_solicitud.php?xgap_historial=reset

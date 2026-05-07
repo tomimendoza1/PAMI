@@ -1,9 +1,10 @@
 # PAMI Bot Web
 
-Aplicacion web para ejecutar el bot de ordenes de prestaciones de PAMI desde una interfaz simple. El proyecto queda preparado para dos escenarios:
+Aplicacion web para ejecutar el bot de ordenes de prestaciones de PAMI desde una interfaz simple. El proyecto queda preparado para estos escenarios:
 
-- `Railway`: backend completo con Express, uploads, logs en vivo y Playwright.
-- `Vercel`: frontend estatico que consume la API desplegada en Railway.
+- `Render`: backend completo con Express, uploads, logs en vivo y Playwright.
+- `Railway`: alternativa para el mismo backend completo.
+- `Vercel`: frontend estatico que consume la API desplegada en Render o Railway.
 
 ## Que hace
 
@@ -86,6 +87,71 @@ Si queres conservar capturas y archivos de trabajos entre deploys, monta un volu
 ### URL publica
 
 Cuando Railway te asigne una URL publica, guardala porque la vas a usar en Vercel como `PAMI_API_BASE_URL`.
+
+## Render
+
+En Render tambien va el backend completo. El repo incluye `render.yaml` para crear un Web Service con Docker usando el plan gratis.
+
+### Crear el servicio
+
+1. Subi estos cambios a GitHub.
+2. En Render, elegi `New` > `Blueprint`.
+3. Conecta el repo y selecciona la rama principal.
+4. Render va a leer `render.yaml` y crear el servicio `pami-bot-web`.
+5. Cuando te pida secretos, completa:
+   - `PAMI_WEB_USERNAME`
+   - `PAMI_WEB_PASSWORD`
+6. Deja que termine el primer deploy.
+7. Abri la URL publica de Render y valida `https://tu-servicio.onrender.com/api/health`.
+
+### Variables incluidas
+
+`render.yaml` ya define:
+
+- `NODE_ENV=production`
+- `STORAGE_DIR=/tmp/pami-storage`
+- `CORS_ORIGIN=*`
+- `PAMI_HEADLESS=true`
+- `PAMI_BROWSER_CHANNEL=`
+- `PAMI_AUTH_SAME_SITE=Lax`
+- `PAMI_AUTH_SECRET` generado automaticamente por Render
+- `PAMI_LOGIN_URL`
+- `PAMI_FORM_URL`
+
+Si usas un frontend separado en Vercel, cambia:
+
+- En Render: `CORS_ORIGIN=https://tu-frontend.vercel.app`
+- En Render: `PAMI_AUTH_SAME_SITE=None`
+- En Vercel: `PAMI_API_BASE_URL=https://tu-backend.onrender.com`
+
+Si usas solo la URL de Render, no necesitas Vercel.
+
+### Limites del plan gratis
+
+Render Free sirve para probar, pero no es ideal para uso diario:
+
+- El servicio se duerme despues de 15 minutos sin trafico.
+- El primer acceso despues de dormir puede tardar alrededor de un minuto.
+- El filesystem es efimero: los uploads, capturas y trabajos guardados se pueden perder al reiniciar, redeployar o dormir el servicio.
+- No hay disco persistente en el plan gratis.
+
+Para uso mas estable, cambia el servicio a un plan pago y agrega un disk persistente, por ejemplo con `STORAGE_DIR=/data/storage`.
+
+### Migrar desde Railway a Render
+
+1. En Railway, entra al servicio actual y copia estas variables:
+   - `PAMI_WEB_USERNAME`
+   - `PAMI_WEB_PASSWORD`
+   - `PAMI_AUTH_SECRET` si queres mantener sesiones actuales
+   - `PAMI_LOGIN_URL` si lo habias personalizado
+   - `PAMI_FORM_URL` si lo habias personalizado
+   - `CORS_ORIGIN` si usas frontend separado
+2. Crea el Blueprint en Render con `render.yaml`.
+3. Carga en Render los secretos que correspondan.
+4. Espera el deploy y prueba `/api/health`.
+5. Si usas Vercel, cambia `PAMI_API_BASE_URL` para que apunte a la URL nueva de Render.
+6. Prueba el login, `Validar carpeta` y una carga chica.
+7. Cuando confirmes que Render funciona, podes pausar o eliminar el servicio de Railway.
 
 ## Vercel
 
