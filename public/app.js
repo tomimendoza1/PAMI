@@ -18,6 +18,8 @@ const inspectionList = document.querySelector("#inspectionList");
 const runtimeConfig = window.__PAMI_RUNTIME_CONFIG__ || {};
 const apiBaseUrl = String(runtimeConfig.apiBaseUrl || "").replace(/\/+$/, "");
 const authStorageKey = "pami_web_token";
+const networkErrorMessage =
+  "No se pudo conectar con el backend. Verifica que el servidor este encendido y que la URL de API sea correcta.";
 
 let activeSource = null;
 let isRunning = false;
@@ -37,11 +39,15 @@ async function apiFetch(path, options = {}) {
 
   const nextOptions = {
     credentials: "include",
-    headers,
-    ...options
+    ...options,
+    headers
   };
 
-  return fetch(apiUrl(path), nextOptions);
+  try {
+    return await fetch(apiUrl(path), nextOptions);
+  } catch (error) {
+    throw new Error(`${networkErrorMessage} Detalle: ${error.message}`);
+  }
 }
 
 async function apiJson(path, options = {}) {
@@ -51,6 +57,27 @@ async function apiJson(path, options = {}) {
     response,
     payload
   };
+}
+
+async function readResponsePayload(response) {
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    return response.json().catch(() => ({}));
+  }
+
+  const text = await response.text().catch(() => "");
+  return {
+    error: text.trim()
+      ? `El backend devolvio una respuesta inesperada (${response.status}).`
+      : `El backend devolvio una respuesta vacia (${response.status}).`
+  };
+}
+
+async function ensureBackendAvailable() {
+  const { response, payload } = await apiJson("/api/health");
+  if (!response.ok || !payload.ok) {
+    throw new Error(payload.error || "El backend no respondio correctamente al chequeo de salud.");
+  }
 }
 
 function setAuthBusy(isBusy) {
@@ -352,7 +379,7 @@ inspectButton.addEventListener("click", async () => {
       method: "POST",
       body: buildUploadBody(files, { ...buildSettings(), ...advanced })
     });
-    const payload = await response.json();
+    const payload = await readResponsePayload(response);
     if (!response.ok) {
       throw new Error(payload.error || "No se pudo validar la carpeta.");
     }
@@ -402,13 +429,14 @@ form.addEventListener("submit", async (event) => {
     setBusy(true);
     resetLogs();
     addLog("Subiendo archivos y preparando la ejecucion...");
+    await ensureBackendAvailable();
 
     const response = await apiFetch("/api/jobs/start", {
       method: "POST",
       body
     });
 
-    const payload = await response.json();
+    const payload = await readResponsePayload(response);
     if (!response.ok) {
       throw new Error(payload.error || "No se pudo iniciar el trabajo.");
     }

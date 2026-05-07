@@ -525,6 +525,29 @@ app.get("*", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
+app.use((error, _req, res, next) => {
+  if (!error) {
+    return next();
+  }
+
+  if (error instanceof multer.MulterError) {
+    const messages = {
+      LIMIT_FILE_SIZE: "Uno de los archivos supera el limite de 35 MB.",
+      LIMIT_FILE_COUNT: "La carpeta supera el limite de 300 archivos.",
+      LIMIT_UNEXPECTED_FILE: "La carga contiene un campo de archivo inesperado."
+    };
+
+    return res.status(413).json({
+      error: messages[error.code] || `No se pudo recibir la carga: ${error.message}`
+    });
+  }
+
+  console.error("Error no controlado:", error);
+  return res.status(500).json({
+    error: error.message || "Error interno del servidor."
+  });
+});
+
 const server = app.listen(PORT, () => {
   console.log(`PAMI Bot Web disponible en http://localhost:${PORT}`);
 });
