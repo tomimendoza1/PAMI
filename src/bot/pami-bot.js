@@ -607,7 +607,13 @@ async function cargarDocumentacionPDF(page, patient, patientFolder, settings) {
 
 async function cargarNumeroOME(page, settings, ome) {
   const selector = settings.selectors.omeInput;
-  await page.waitForSelector(selector, { timeout: 15000 });
+  const input = page.locator(selector).first();
+  try {
+    await input.waitFor({ state: "visible", timeout: 8000 });
+  } catch (_error) {
+    return false;
+  }
+
   await page.fill(selector, "");
   await page.type(selector, digitsOnly(ome), { delay: 20 });
   await page.evaluate((cssSelector) => {
@@ -620,6 +626,7 @@ async function cargarNumeroOME(page, settings, ome) {
   }, selector);
   await page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => null);
   await page.waitForTimeout(800);
+  return true;
 }
 
 async function agregarPractica(page) {
