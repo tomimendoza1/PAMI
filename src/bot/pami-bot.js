@@ -632,12 +632,6 @@ async function cargarDocumentacionPDF(page, patient, patientFolder, settings) {
     throw new Error(`No se encontró PDF para el afiliado ${patient.afiliado}.`);
   }
 
-  if (!(await hasUsableSelectOptions(page, settings.selectors.documentacionSelect))) {
-    await subirArchivoDocumentacion(page, filePath);
-    await page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => null);
-    await page.waitForTimeout(1000);
-  }
-
   await selectDocumentacionOption(page, settings.selectors.documentacionSelect, settings.docsTypeText);
   await subirArchivoDocumentacion(page, filePath);
   await page.click(settings.selectors.documentacionAgregarBtn);
@@ -669,23 +663,29 @@ async function cargarNumeroOME(page, settings, ome) {
 }
 
 async function agregarPractica(page) {
-  await page.waitForSelector("#boton_datos_medicos", { timeout: 15000 });
-  await page.click("#boton_datos_medicos");
+  const button = page.locator("#boton_datos_medicos").first();
+  await button.waitFor({ state: "visible", timeout: 15000 });
+  await button.scrollIntoViewIfNeeded();
+  await button.click();
   await page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => null);
   await page.waitForTimeout(1200);
 }
 
 async function agregarPracticaYEsperarDocumentacion(page, settings) {
-  await agregarPractica(page);
-  if (await waitForUsableSelectOptions(page, settings.selectors.documentacionSelect, 10000)) {
-    return;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    await agregarPractica(page);
+    if (await waitForUsableSelectOptions(page, settings.selectors.documentacionSelect, 12000)) {
+      return;
+    }
+
+    if (attempt < 3) {
+      await typeLikeHuman(page, settings.selectors.practicaInput, settings.fixed.practica);
+      await pressEnter(page, settings.selectors.practicaInput);
+      await clickAutocompleteSuggestion(page, settings.autocompleteSelectors, settings.fixed.practica);
+    }
   }
 
-  await typeLikeHuman(page, settings.selectors.practicaInput, settings.fixed.practica);
-  await pressEnter(page, settings.selectors.practicaInput);
-  await clickAutocompleteSuggestion(page, settings.autocompleteSelectors, settings.fixed.practica);
-  await agregarPractica(page);
-  await waitForUsableSelectOptions(page, settings.selectors.documentacionSelect, 15000);
+  throw new Error("No se habilito documentacion despues de presionar Agregar en Datos Medicos.");
 }
 
 async function generarYVolver(page, settings) {
