@@ -531,6 +531,39 @@ async function selectDocumentacionOption(page, selector, targetText) {
   );
 }
 
+async function hasUsableSelectOptions(page, selector) {
+  return page.evaluate((cssSelector) => {
+    const normalize = (value) =>
+      String(value || "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const select = document.querySelector(cssSelector);
+    if (!select) {
+      return false;
+    }
+
+    return Array.from(select.options).some((option) => {
+      const text = normalize(option.textContent || "");
+      return option.value && text && !["seleccione", "seleccione."].includes(text);
+    });
+  }, selector);
+}
+
+async function waitForUsableSelectOptions(page, selector, timeout = 12000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeout) {
+    if (await hasUsableSelectOptions(page, selector)) {
+      return true;
+    }
+    await sleep(300);
+  }
+  return false;
+}
+
 async function asegurarNroBeneficio(page) {
   const radios = page.locator('input[type="radio"][name="tipo_busqueda_datos_del_afiliado"]');
   await radios.first().waitFor({ state: "attached", timeout: 15000 });
@@ -636,6 +669,19 @@ async function agregarPractica(page) {
   await page.waitForTimeout(1200);
 }
 
+async function agregarPracticaYEsperarDocumentacion(page, settings) {
+  await agregarPractica(page);
+  if (await waitForUsableSelectOptions(page, settings.selectors.documentacionSelect, 10000)) {
+    return;
+  }
+
+  await typeLikeHuman(page, settings.selectors.practicaInput, settings.fixed.practica);
+  await pressEnter(page, settings.selectors.practicaInput);
+  await clickAutocompleteSuggestion(page, settings.autocompleteSelectors, settings.fixed.practica);
+  await agregarPractica(page);
+  await waitForUsableSelectOptions(page, settings.selectors.documentacionSelect, 15000);
+}
+
 async function generarYVolver(page, settings) {
   const listUrlRegex = /op_panel_listado\.php/i;
   await page.click(settings.selectors.generarBtn);
@@ -702,7 +748,7 @@ async function procesarPaciente(page, patient, patientFolder, settings) {
   await typeLikeHuman(page, settings.selectors.practicaInput, settings.fixed.practica);
   await pressEnter(page, settings.selectors.practicaInput);
   await clickAutocompleteSuggestion(page, settings.autocompleteSelectors, settings.fixed.practica);
-  await agregarPractica(page);
+  await agregarPracticaYEsperarDocumentacion(page, settings);
 
   if (patient.ome) {
     await cargarNumeroOME(page, settings, patient.ome);
