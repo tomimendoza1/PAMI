@@ -32,25 +32,33 @@ fs.mkdirSync(JOBS_DIR, { recursive: true });
 function parseOriginList(rawValue) {
   return String(rawValue || "")
     .split(",")
-    .map((value) => value.trim())
+    .map((value) => normalizeCorsOrigin(value))
     .filter(Boolean);
 }
 
+function normalizeCorsOrigin(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^["']|["']$/g, "")
+    .replace(/\/+$/, "");
+}
+
 function getAllowedOrigin(origin) {
-  if (!origin) {
+  const normalizedOrigin = normalizeCorsOrigin(origin);
+  if (!normalizedOrigin) {
     return null;
   }
 
   const allowedOrigins = parseOriginList(CORS_ORIGIN_CONFIG);
   if (!allowedOrigins.length) {
-    return origin;
+    return normalizedOrigin;
   }
 
   if (allowedOrigins.includes("*")) {
-    return origin;
+    return normalizedOrigin;
   }
 
-  return allowedOrigins.includes(origin) ? origin : null;
+  return allowedOrigins.includes(normalizedOrigin) ? normalizedOrigin : null;
 }
 
 function appendCorsHeaders(req, res) {
