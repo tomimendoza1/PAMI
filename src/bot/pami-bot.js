@@ -618,6 +618,8 @@ async function cargarNumeroOME(page, settings, ome) {
     element.dispatchEvent(new Event("input", { bubbles: true }));
     element.dispatchEvent(new Event("change", { bubbles: true }));
   }, selector);
+  await page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => null);
+  await page.waitForTimeout(800);
 }
 
 async function agregarPractica(page) {
@@ -694,12 +696,12 @@ async function procesarPaciente(page, patient, patientFolder, settings) {
   await pressEnter(page, settings.selectors.practicaInput);
   await clickAutocompleteSuggestion(page, settings.autocompleteSelectors, settings.fixed.practica);
   await agregarPractica(page);
-  await cargarDocumentacionPDF(page, patient, patientFolder, settings);
 
   if (patient.ome) {
     await cargarNumeroOME(page, settings, patient.ome);
   }
 
+  await cargarDocumentacionPDF(page, patient, patientFolder, settings);
   await generarYVolver(page, settings);
 }
 
