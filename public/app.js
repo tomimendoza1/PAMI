@@ -6,6 +6,7 @@ const authMessage = document.querySelector("#authMessage");
 const logoutButton = document.querySelector("#logoutButton");
 const form = document.querySelector("#jobForm");
 const runButton = document.querySelector("#runButton");
+const cancelButton = document.querySelector("#cancelButton");
 const inspectButton = document.querySelector("#inspectButton");
 const formMessage = document.querySelector("#formMessage");
 const logStream = document.querySelector("#logStream");
@@ -25,6 +26,7 @@ let activeSource = null;
 let isRunning = false;
 let isInspecting = false;
 let isAuthenticating = false;
+let activeJobId = "";
 let authToken = localStorage.getItem(authStorageKey) || "";
 
 function apiUrl(path) {
@@ -140,8 +142,10 @@ function resetLogs() {
 function syncButtons() {
   runButton.disabled = isRunning || isInspecting;
   inspectButton.disabled = isRunning || isInspecting;
+  cancelButton.disabled = !isRunning || !activeJobId;
   runButton.textContent = isRunning ? "Ejecutando..." : "Iniciar bot";
   inspectButton.textContent = isInspecting ? "Validando..." : "Validar carpeta";
+  cancelButton.textContent = isRunning ? "Parar ejecucion" : "Parar ejecucion";
 }
 
 function setBusy(nextRunning) {
@@ -173,11 +177,17 @@ function setStatus(status) {
   const labels = {
     queued: "En cola",
     running: "Ejecutando",
+    cancelling: "Cancelando",
+    cancelled: "Cancelado",
     completed: "Finalizado",
     completed_with_errors: "Finalizado con errores",
     failed: "Fallo"
   };
   jobStatus.textContent = labels[status] || status;
+}
+
+function isActiveJobStatus(status) {
+  return ["queued", "running", "cancelling"].includes(status);
 }
 
 function getAdvancedSettings() {
@@ -333,12 +343,15 @@ function connectToStream(id) {
   activeSource.addEventListener("snapshot", (event) => {
     const snapshot = JSON.parse(event.data);
     resetLogs();
+    activeJobId = isActiveJobStatus(snapshot.status) ? snapshot.id : "";
     jobId.textContent = snapshot.id;
     setStatus(snapshot.status);
     setSummary(snapshot.summary, snapshot.error);
     (snapshot.logs || []).forEach((entry) => addLog(entry.message, entry.level, entry.at, entry.screenshotUrl));
-    if (snapshot.status !== "running" && snapshot.status !== "queued") {
+    if (!isActiveJobStatus(snapshot.status)) {
       setBusy(false);
+      activeJobId = "";
+      syncButtons();
     }
   });
 
@@ -349,10 +362,13 @@ function connectToStream(id) {
 
   activeSource.addEventListener("status", (event) => {
     const payload = JSON.parse(event.data);
+    activeJobId = isActiveJobStatus(payload.status) ? payload.id : "";
     setStatus(payload.status);
     setSummary(payload.summary, payload.error);
-    if (payload.status !== "running" && payload.status !== "queued") {
+    if (!isActiveJobStatus(payload.status)) {
       setBusy(false);
+      activeJobId = "";
+      syncButtons();
     }
   });
 
@@ -416,6 +432,31 @@ inspectButton.addEventListener("click", async () => {
   }
 });
 
+cancelButton.addEventListener("click", async () => {
+  if (!activeJobId) {
+    return;
+  }
+
+  try {
+    cancelButton.disabled = true;
+    cancelButton.textContent = "Parando...";
+    const { response, payload } = await apiJson(`/api/jobs/${activeJobId}/cancel`, {
+      method: "POST"
+    });
+
+    if (!response.ok) {
+      throw new Error(payload.error || "No se pudo parar la ejecucion.");
+    }
+
+    setStatus(payload.status);
+    addLog("Cancelacion solicitada. Esperando que el bot se detenga...");
+  } catch (error) {
+    formMessage.textContent = error.message;
+    addLog(error.message, "error");
+    syncButtons();
+  }
+});
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   formMessage.textContent = "";
@@ -462,9 +503,11 @@ form.addEventListener("submit", async (event) => {
       throw new Error(payload.error || "No se pudo iniciar el trabajo.");
     }
 
+    activeJobId = payload.id;
     jobId.textContent = payload.id;
     setStatus(payload.status);
     setSummary(null, null);
+    syncButtons();
     addLog("Trabajo creado. Conectando al stream...");
     connectToStream(payload.id);
   } catch (error) {

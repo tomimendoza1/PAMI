@@ -251,6 +251,7 @@ function createJob(rawSettings) {
     logs: [],
     summary: null,
     error: null,
+    cancelled: false,
     subscribers: new Set()
   };
 
@@ -369,8 +370,16 @@ async function executeJob(job) {
       rawSettings: job.rawSettings,
       inputDir: job.inputDir,
       screenshotsDir: job.screenshotsDir,
+      signal: job,
       log: (level, message) => appendLog(job, level, message)
     });
+
+    if (job.cancelled) {
+      job.finishedAt = new Date().toISOString();
+      appendLog(job, "warn", "Ejecucion cancelada por el usuario.");
+      updateStatus(job, "cancelled", { error: "Ejecucion cancelada por el usuario." });
+      return;
+    }
 
     job.summary = summary;
     job.finishedAt = new Date().toISOString();
@@ -378,6 +387,11 @@ async function executeJob(job) {
   } catch (error) {
     job.error = error.message;
     job.finishedAt = new Date().toISOString();
+    if (error.code === "JOB_CANCELLED") {
+      appendLog(job, "warn", error.message);
+      updateStatus(job, "cancelled");
+      return;
+    }
     appendLog(job, "error", error.message);
     updateStatus(job, "failed");
   } finally {
@@ -570,6 +584,22 @@ app.post("/api/jobs/start", upload.any(), async (req, res) => {
   } catch (error) {
     return res.status(400).json({ error: error.message || "No se pudo iniciar el trabajo." });
   }
+});
+
+app.post("/api/jobs/:id/cancel", (req, res) => {
+  const job = jobs.get(req.params.id);
+  if (!job) {
+    return res.status(404).json({ error: "Trabajo no encontrado." });
+  }
+
+  if (!["queued", "running"].includes(job.status)) {
+    return res.status(409).json({ error: "El trabajo ya no esta en ejecucion." });
+  }
+
+  job.cancelled = true;
+  appendLog(job, "warn", "Cancelacion solicitada. El bot se detendra en el proximo punto seguro.");
+  updateStatus(job, "cancelling");
+  return res.json({ id: job.id, status: job.status });
 });
 
 app.get("*", (_req, res) => {

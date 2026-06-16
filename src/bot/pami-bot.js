@@ -57,6 +57,18 @@ function createLogger(log) {
   };
 }
 
+function createCancelError() {
+  const error = new Error("Ejecucion cancelada por el usuario.");
+  error.code = "JOB_CANCELLED";
+  return error;
+}
+
+function throwIfCancelled(signal) {
+  if (signal && signal.cancelled) {
+    throw createCancelError();
+  }
+}
+
 function listPatientFolders(baseDir) {
   if (!fs.existsSync(baseDir)) {
     return [];
@@ -902,7 +914,8 @@ async function login(page, settings, logger, screenshotsDir) {
   }
 }
 
-async function procesarPaciente(page, patient, patientFolder, settings, screenshotsDir, logger, capturePrefix) {
+async function procesarPaciente(page, patient, patientFolder, settings, screenshotsDir, logger, capturePrefix, signal) {
+  throwIfCancelled(signal);
   await asegurarNroBeneficio(page);
   await captureDebugScreenshot(
     page,
@@ -912,6 +925,7 @@ async function procesarPaciente(page, patient, patientFolder, settings, screensh
     `Formulario listo para afiliado ${patient.afiliado}`,
     `${capturePrefix}-02-formulario-afiliado`
   );
+  throwIfCancelled(signal);
   await typeLikeHuman(page, settings.selectors.afiliadoInput, patient.afiliado);
   await pressEnter(page, settings.selectors.afiliadoInput);
   await clickAutocompleteSuggestion(page, settings.autocompleteSelectors, patient.afiliado);
@@ -940,6 +954,7 @@ async function procesarPaciente(page, patient, patientFolder, settings, screensh
     await pressEnter(page, settings.selectors.telefonoNumero);
   }
 
+  throwIfCancelled(signal);
   await selectByBestText(page, settings.selectors.motivoSelect, settings.fixed.motivo);
   await typeLikeHuman(page, settings.selectors.diagnosticoInput, settings.fixed.diagnostico);
   await acceptAutocompleteOrKeepTypedValue(
@@ -962,6 +977,7 @@ async function procesarPaciente(page, patient, patientFolder, settings, screensh
     await cargarNumeroOME(page, settings, patient.ome);
   }
 
+  throwIfCancelled(signal);
   await cargarDocumentacionPDF(page, patient, patientFolder, settings);
   await captureDebugScreenshot(
     page,
@@ -971,6 +987,7 @@ async function procesarPaciente(page, patient, patientFolder, settings, screensh
     `Datos cargados para afiliado ${patient.afiliado}`,
     `${capturePrefix}-04-datos-cargados`
   );
+  throwIfCancelled(signal);
   await generarYVolver(page, settings, screenshotsDir, logger, capturePrefix);
 }
 
@@ -1118,7 +1135,7 @@ async function inspectPatientsInput(inputDir) {
   return inspection;
 }
 
-async function runPamiBot({ rawSettings, inputDir, screenshotsDir, log }) {
+async function runPamiBot({ rawSettings, inputDir, screenshotsDir, log, signal }) {
   const settings = mergeSettings(defaultSettings, rawSettings);
   const logger = createLogger(log);
   const summary = buildSummary();
@@ -1132,6 +1149,7 @@ async function runPamiBot({ rawSettings, inputDir, screenshotsDir, log }) {
   let page;
 
   try {
+    throwIfCancelled(signal);
     browser = await chromium.launch({
       channel: settings.browserChannel || undefined,
       headless: settings.headless
@@ -1142,6 +1160,7 @@ async function runPamiBot({ rawSettings, inputDir, screenshotsDir, log }) {
 
     const patientsRoot = resolvePatientsRoot(inputDir);
     logger.info(`Leyendo pacientes desde ${patientsRoot}`);
+    throwIfCancelled(signal);
     await login(page, settings, logger, screenshotsDir);
 
     const patientFolders = listPatientFolders(patientsRoot);
@@ -1152,6 +1171,7 @@ async function runPamiBot({ rawSettings, inputDir, screenshotsDir, log }) {
     }
 
     for (const patientFolder of patientFolders) {
+      throwIfCancelled(signal);
       const docxFiles = listFilesByExt(patientFolder, [".docx"]);
       if (!docxFiles.length) {
         logger.warn(`No hay archivos .docx en ${path.basename(patientFolder)}. Se omite.`);
@@ -1160,6 +1180,7 @@ async function runPamiBot({ rawSettings, inputDir, screenshotsDir, log }) {
       }
 
       for (const docxPath of docxFiles) {
+        throwIfCancelled(signal);
         summary.docx += 1;
         const docName = path.basename(docxPath);
         logger.info(`Procesando ${docName} en ${path.basename(patientFolder)}...`);
@@ -1184,9 +1205,11 @@ async function runPamiBot({ rawSettings, inputDir, screenshotsDir, log }) {
         logger.info(`Afiliado ${patient.afiliado}: ${repetitions} carga(s) detectada(s).`);
 
         for (let index = 1; index <= repetitions; index += 1) {
+          throwIfCancelled(signal);
           try {
             logger.info(`Carga ${index}/${repetitions} para afiliado ${patient.afiliado}.`);
             await page.goto(settings.formUrl, { waitUntil: "domcontentloaded" });
+            throwIfCancelled(signal);
             await procesarPaciente(
               page,
               patient,
@@ -1194,7 +1217,8 @@ async function runPamiBot({ rawSettings, inputDir, screenshotsDir, log }) {
               settings,
               screenshotsDir,
               logger,
-              `${patient.afiliado}-${index}`
+              `${patient.afiliado}-${index}`,
+              signal
             );
             summary.generated += 1;
             logger.info(`Orden generada correctamente para ${patient.afiliado}.`);
