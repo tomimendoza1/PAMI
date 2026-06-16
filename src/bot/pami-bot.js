@@ -144,6 +144,38 @@ function digitsOnly(value) {
   return String(value || "").replace(/\D+/g, "");
 }
 
+function parsePhoneFields(text) {
+  const safeText = String(text || "")
+    .replace(/\u00A0/g, " ")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  let telefonoArea = digitsOnly(
+    pick(safeText, /(?:^|\b)(?:telefono\s*)?area\b\s*:?\s*([0-9][0-9\s-]*)/im) ||
+      pick(safeText, /(?:^|\b)cod(?:igo)?\.?\s*(?:de\s*)?area\b\s*:?\s*([0-9][0-9\s-]*)/im)
+  );
+
+  let telefono = digitsOnly(
+    pick(safeText, /(?:^|\b)telefono\b(?!\s*area)\s*:?\s*([0-9][0-9\s-]*)/im) ||
+      pick(safeText, /(?:^|\b)tel\b(?!\s*area)\s*:?\s*([0-9][0-9\s-]*)/im)
+  );
+
+  if (!telefonoArea && telefono.length > 2) {
+    telefonoArea = telefono.slice(0, 2);
+    telefono = telefono.slice(2);
+  }
+
+  if (telefonoArea.length > 2 && !telefono) {
+    telefono = telefonoArea.slice(2);
+    telefonoArea = telefonoArea.slice(0, 2);
+  }
+
+  return {
+    telefonoArea,
+    telefono
+  };
+}
+
 function normalizeText(value) {
   return String(value || "")
     .toLowerCase()
@@ -205,20 +237,15 @@ function parseCantidadAudifonos(text) {
 async function readDocx(file) {
   const { value } = await mammoth.extractRawText({ path: file });
   const text = String(value || "").replace(/\u00A0/g, " ");
+  const phone = parsePhoneFields(text);
 
   return {
     afiliado: digitsOnly(
       pick(text, /(?:^|\b)AF\b\s*:\s*([0-9][0-9.\s-]+)/im) ||
         pick(text, /(?:^|\b)AFILIADO\b\s*:\s*([0-9][0-9.\s-]+)/im)
     ),
-    telefonoArea: digitsOnly(
-      pick(text, /(?:^|\b)TelefonoArea\b\s*:\s*([0-9][0-9\s-]*)/im) ||
-        pick(text, /(?:^|\b)Tel(?:efono)?\s*Area\b\s*:\s*([0-9][0-9\s-]*)/im)
-    ),
-    telefono: digitsOnly(
-      pick(text, /(?:^|\b)Telefono\b\s*:\s*([0-9][0-9\s-]*)/im) ||
-        pick(text, /(?:^|\b)Tel\b\s*:\s*([0-9][0-9\s-]*)/im)
-    ),
+    telefonoArea: phone.telefonoArea,
+    telefono: phone.telefono,
     ome: digitsOnly(
       pick(text, /(?:^|\b)OME\b\s*:\s*([0-9][0-9.\s-]+)/im) ||
         pick(text, /(?:^|\b)Nro\.?\s*OME\b\s*:\s*([0-9][0-9.\s-]+)/im)
@@ -851,6 +878,12 @@ async function procesarPaciente(page, patient, patientFolder, settings, screensh
     `Afiliado ${patient.afiliado} seleccionado`,
     `${capturePrefix}-03-afiliado-seleccionado`
   );
+
+  if (patient.telefonoArea && patient.telefono) {
+    logger.info(`Telefono detectado: area ${patient.telefonoArea}, numero ${patient.telefono}.`);
+  } else {
+    logger.warn(`No se detecto telefono completo para ${patient.afiliado}; PAMI puede rechazar la orden.`);
+  }
 
   if (patient.telefonoArea) {
     await typeLikeHuman(page, settings.selectors.telefonoArea, patient.telefonoArea);
