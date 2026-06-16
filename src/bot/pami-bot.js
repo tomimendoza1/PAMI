@@ -564,6 +564,45 @@ async function waitForUsableSelectOptions(page, selector, timeout = 12000) {
   return false;
 }
 
+async function getPageDiagnostic(page) {
+  const currentUrl = page.url();
+  const title = await page.title().catch(() => "");
+  const loginVisible = await page.locator("#c_usuario, #password, #ingresar").first().isVisible().catch(() => false);
+  const bodyText = await page.locator("body").innerText({ timeout: 1000 }).catch(() => "");
+  const compactText = bodyText.replace(/\s+/g, " ").trim().slice(0, 300);
+
+  return [
+    `URL actual: ${currentUrl || "desconocida"}`,
+    title ? `Titulo: ${title}` : "",
+    loginVisible ? "La pantalla de login sigue visible; revisa usuario, contrasena o permisos de PAMI." : "",
+    compactText ? `Texto visible: ${compactText}` : ""
+  ]
+    .filter(Boolean)
+    .join(" | ");
+}
+
+async function waitForPamiForm(page, settings, timeout = 20000) {
+  const selectors = [
+    settings.selectors.postLoginCheck,
+    settings.selectors.afiliadoInput,
+    'input[name="tipo_busqueda_datos_del_afiliado"]',
+    settings.selectors.motivoSelect
+  ].filter(Boolean);
+
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeout) {
+    for (const selector of selectors) {
+      if (await page.locator(selector).first().count().catch(() => 0)) {
+        return selector;
+      }
+    }
+    await sleep(200);
+  }
+
+  const diagnostic = await getPageDiagnostic(page);
+  throw new Error(`No se encontro el formulario de carga de PAMI despues de iniciar sesion. ${diagnostic}`);
+}
+
 async function asegurarNroBeneficio(page) {
   const radios = page.locator('input[type="radio"][name="tipo_busqueda_datos_del_afiliado"]');
   await radios.first().waitFor({ state: "attached", timeout: 15000 });
@@ -710,7 +749,7 @@ async function generarYVolver(page, settings) {
   }
 
   await page.goto(settings.formUrl, { waitUntil: "domcontentloaded" });
-  await page.waitForSelector(settings.selectors.postLoginCheck, { timeout: 20000 });
+  await waitForPamiForm(page, settings);
 }
 
 async function login(page, settings, logger) {
@@ -726,7 +765,7 @@ async function login(page, settings, logger) {
   ]);
 
   await page.goto(settings.formUrl, { waitUntil: "domcontentloaded" });
-  await page.waitForSelector(settings.selectors.postLoginCheck, { timeout: 20000 });
+  await waitForPamiForm(page, settings);
   logger.info("Sesión iniciada correctamente.");
 }
 
