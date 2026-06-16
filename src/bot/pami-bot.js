@@ -252,8 +252,8 @@ async function pressEnter(page, selector) {
   await page.keyboard.press("Enter");
 }
 
-async function clickAutocompleteSuggestion(page, selectors, text) {
-  const visibleSelector = await waitVisibleAny(page, selectors);
+async function clickAutocompleteSuggestion(page, selectors, text, timeout = 12000) {
+  const visibleSelector = await waitVisibleAny(page, selectors, timeout);
   const items = await page.$$(visibleSelector);
   for (const item of items) {
     const itemText = ((await item.innerText()) || "").trim();
@@ -268,6 +268,24 @@ async function clickAutocompleteSuggestion(page, selectors, text) {
   }
 
   await items[0].click();
+}
+
+async function acceptAutocompleteOrKeepTypedValue(page, selector, selectors, text) {
+  await pressEnter(page, selector);
+
+  try {
+    await clickAutocompleteSuggestion(page, selectors, text, 1800);
+    return;
+  } catch (error) {
+    if (!String(error.message || error).includes("autocomplete")) {
+      throw error;
+    }
+  }
+
+  const value = await page.locator(selector).first().inputValue().catch(() => "");
+  if (!String(value || "").trim()) {
+    throw new Error(`No se pudo confirmar el valor "${text}" en ${selector}.`);
+  }
 }
 
 async function selectByText(page, selector, text) {
@@ -720,8 +738,12 @@ async function agregarPracticaYEsperarDocumentacion(page, settings) {
 
     if (attempt < 3) {
       await typeLikeHuman(page, settings.selectors.practicaInput, settings.fixed.practica);
-      await pressEnter(page, settings.selectors.practicaInput);
-      await clickAutocompleteSuggestion(page, settings.autocompleteSelectors, settings.fixed.practica);
+      await acceptAutocompleteOrKeepTypedValue(
+        page,
+        settings.selectors.practicaInput,
+        settings.autocompleteSelectors,
+        settings.fixed.practica
+      );
     }
   }
 
@@ -842,12 +864,20 @@ async function procesarPaciente(page, patient, patientFolder, settings, screensh
 
   await selectByBestText(page, settings.selectors.motivoSelect, settings.fixed.motivo);
   await typeLikeHuman(page, settings.selectors.diagnosticoInput, settings.fixed.diagnostico);
-  await pressEnter(page, settings.selectors.diagnosticoInput);
-  await clickAutocompleteSuggestion(page, settings.autocompleteSelectors, settings.fixed.diagnostico);
+  await acceptAutocompleteOrKeepTypedValue(
+    page,
+    settings.selectors.diagnosticoInput,
+    settings.autocompleteSelectors,
+    settings.fixed.diagnostico
+  );
   await selectByBestText(page, settings.selectors.modalidadSelect, settings.fixed.modalidad);
   await typeLikeHuman(page, settings.selectors.practicaInput, settings.fixed.practica);
-  await pressEnter(page, settings.selectors.practicaInput);
-  await clickAutocompleteSuggestion(page, settings.autocompleteSelectors, settings.fixed.practica);
+  await acceptAutocompleteOrKeepTypedValue(
+    page,
+    settings.selectors.practicaInput,
+    settings.autocompleteSelectors,
+    settings.fixed.practica
+  );
   await agregarPracticaYEsperarDocumentacion(page, settings);
 
   if (patient.ome) {
