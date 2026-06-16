@@ -22,6 +22,7 @@ function mergeSettings(base, overrides) {
     next.browserChannel = src.browserChannel;
   }
   next.headless = typeof src.headless === "boolean" ? src.headless : next.headless;
+  next.debugScreenshots = typeof src.debugScreenshots === "boolean" ? src.debugScreenshots : next.debugScreenshots;
   next.docsTypeText = src.docsTypeText || next.docsTypeText;
   next.credentials = {
     ...next.credentials,
@@ -727,12 +728,40 @@ async function agregarPracticaYEsperarDocumentacion(page, settings) {
   throw new Error("No se habilito documentacion despues de presionar Agregar en Datos Medicos.");
 }
 
-async function generarYVolver(page, settings) {
+async function captureDebugScreenshot(page, settings, screenshotsDir, logger, label, fileName) {
+  if (!settings.debugScreenshots || !page || !screenshotsDir) {
+    return;
+  }
+
+  const safeName = sanitizeSlug(fileName || label) || `captura-${Date.now()}`;
+  const screenshotPath = await saveErrorScreenshot(page, screenshotsDir, `${safeName}.png`);
+  if (screenshotPath) {
+    logger.info(`${label}. Captura: ${screenshotPath}`);
+  }
+}
+
+async function generarYVolver(page, settings, screenshotsDir, logger, capturePrefix) {
   const listUrlRegex = /op_panel_listado\.php/i;
   await page.click(settings.selectors.generarBtn);
+  await captureDebugScreenshot(
+    page,
+    settings,
+    screenshotsDir,
+    logger,
+    "Pantalla despues de presionar Generar",
+    `${capturePrefix}-05-generar`
+  );
 
   try {
     await page.waitForSelector("button.confirm", { timeout: 8000 });
+    await captureDebugScreenshot(
+      page,
+      settings,
+      screenshotsDir,
+      logger,
+      "Confirmacion de orden visible",
+      `${capturePrefix}-06-confirmacion`
+    );
     await page.click("button.confirm");
   } catch (error) {
     if (!/Timeout/.test(String(error))) {
@@ -750,12 +779,21 @@ async function generarYVolver(page, settings) {
 
   await page.goto(settings.formUrl, { waitUntil: "domcontentloaded" });
   await waitForPamiForm(page, settings);
+  await captureDebugScreenshot(
+    page,
+    settings,
+    screenshotsDir,
+    logger,
+    "Formulario listo para la siguiente carga",
+    `${capturePrefix}-07-formulario-siguiente`
+  );
 }
 
-async function login(page, settings, logger) {
+async function login(page, settings, logger, screenshotsDir) {
   logger.info("Iniciando sesión en PAMI...");
   await page.goto(settings.loginUrl, { waitUntil: "domcontentloaded" });
   await page.waitForSelector(settings.selectors.usuarioInput, { timeout: 15000 });
+  await captureDebugScreenshot(page, settings, screenshotsDir, logger, "Pantalla de login cargada", "00-login");
   await page.fill(settings.selectors.usuarioInput, settings.credentials.usuario);
   await page.fill(settings.selectors.passwordInput, settings.credentials.password);
 
@@ -766,14 +804,31 @@ async function login(page, settings, logger) {
 
   await page.goto(settings.formUrl, { waitUntil: "domcontentloaded" });
   await waitForPamiForm(page, settings);
+  await captureDebugScreenshot(page, settings, screenshotsDir, logger, "Formulario de carga abierto", "01-formulario");
   logger.info("Sesión iniciada correctamente.");
 }
 
-async function procesarPaciente(page, patient, patientFolder, settings) {
+async function procesarPaciente(page, patient, patientFolder, settings, screenshotsDir, logger, capturePrefix) {
   await asegurarNroBeneficio(page);
+  await captureDebugScreenshot(
+    page,
+    settings,
+    screenshotsDir,
+    logger,
+    `Formulario listo para afiliado ${patient.afiliado}`,
+    `${capturePrefix}-02-formulario-afiliado`
+  );
   await typeLikeHuman(page, settings.selectors.afiliadoInput, patient.afiliado);
   await pressEnter(page, settings.selectors.afiliadoInput);
   await clickAutocompleteSuggestion(page, settings.autocompleteSelectors, patient.afiliado);
+  await captureDebugScreenshot(
+    page,
+    settings,
+    screenshotsDir,
+    logger,
+    `Afiliado ${patient.afiliado} seleccionado`,
+    `${capturePrefix}-03-afiliado-seleccionado`
+  );
 
   if (patient.telefonoArea) {
     await typeLikeHuman(page, settings.selectors.telefonoArea, patient.telefonoArea);
@@ -800,7 +855,15 @@ async function procesarPaciente(page, patient, patientFolder, settings) {
   }
 
   await cargarDocumentacionPDF(page, patient, patientFolder, settings);
-  await generarYVolver(page, settings);
+  await captureDebugScreenshot(
+    page,
+    settings,
+    screenshotsDir,
+    logger,
+    `Datos cargados para afiliado ${patient.afiliado}`,
+    `${capturePrefix}-04-datos-cargados`
+  );
+  await generarYVolver(page, settings, screenshotsDir, logger, capturePrefix);
 }
 
 async function saveErrorScreenshot(page, screenshotsDir, fileName) {
@@ -971,7 +1034,7 @@ async function runPamiBot({ rawSettings, inputDir, screenshotsDir, log }) {
 
     const patientsRoot = resolvePatientsRoot(inputDir);
     logger.info(`Leyendo pacientes desde ${patientsRoot}`);
-    await login(page, settings, logger);
+    await login(page, settings, logger, screenshotsDir);
 
     const patientFolders = listPatientFolders(patientsRoot);
     summary.folders = patientFolders.length;
@@ -1016,7 +1079,15 @@ async function runPamiBot({ rawSettings, inputDir, screenshotsDir, log }) {
           try {
             logger.info(`Carga ${index}/${repetitions} para afiliado ${patient.afiliado}.`);
             await page.goto(settings.formUrl, { waitUntil: "domcontentloaded" });
-            await procesarPaciente(page, patient, patientFolder, settings);
+            await procesarPaciente(
+              page,
+              patient,
+              patientFolder,
+              settings,
+              screenshotsDir,
+              logger,
+              `${patient.afiliado}-${index}`
+            );
             summary.generated += 1;
             logger.info(`Orden generada correctamente para ${patient.afiliado}.`);
           } catch (error) {

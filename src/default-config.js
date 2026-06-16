@@ -15,6 +15,7 @@ const defaultSettings = {
     process.env.PAMI_FORM_URL || "https://efectores.pami.org.ar/pami_nc/OP/op_cargar_solicitud.php?xgap_historial=reset",
   browserChannel: process.env.PAMI_BROWSER_CHANNEL ?? (isWindows ? "msedge" : ""),
   headless: readBoolEnv("PAMI_HEADLESS", !isWindows),
+  debugScreenshots: readBoolEnv("PAMI_DEBUG_SCREENSHOTS", false),
   docsTypeText:
     "AUDIOMETRIA / LOGOAUDIOMETRIA / TIMPANOMETRIA / IMPEDANCIOMETRIA + DERIVACION DEL ESPECIALISTA EN ORL",
   credentials: {
