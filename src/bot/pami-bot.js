@@ -627,6 +627,26 @@ async function getPageDiagnostic(page) {
     .join(" | ");
 }
 
+async function getPamiAccessBlocker(page) {
+  const bodyText = await page.locator("body").innerText({ timeout: 1000 }).catch(() => "");
+  const normalized = normalizeText(bodyText);
+
+  if (normalized.includes("no tiene permisos") || normalized.includes("sesion ha expirado")) {
+    return bodyText.replace(/\s+/g, " ").trim().slice(0, 300);
+  }
+
+  return "";
+}
+
+async function throwPamiFormError(page) {
+  const diagnostic = await getPageDiagnostic(page);
+  const error = new Error(`No se encontro el formulario de carga de PAMI despues de iniciar sesion. ${diagnostic}`);
+  if (await getPamiAccessBlocker(page)) {
+    error.code = "PAMI_SESSION_BLOCKED";
+  }
+  throw error;
+}
+
 async function waitForPamiForm(page, settings, timeout = 20000) {
   const selectors = [
     settings.selectors.postLoginCheck,
@@ -642,11 +662,13 @@ async function waitForPamiForm(page, settings, timeout = 20000) {
         return selector;
       }
     }
+    if (await getPamiAccessBlocker(page)) {
+      await throwPamiFormError(page);
+    }
     await sleep(200);
   }
 
-  const diagnostic = await getPageDiagnostic(page);
-  throw new Error(`No se encontro el formulario de carga de PAMI despues de iniciar sesion. ${diagnostic}`);
+  await throwPamiFormError(page);
 }
 
 async function asegurarNroBeneficio(page) {
@@ -839,22 +861,45 @@ async function generarYVolver(page, settings, screenshotsDir, logger, capturePre
 }
 
 async function login(page, settings, logger, screenshotsDir) {
-  logger.info("Iniciando sesión en PAMI...");
-  await page.goto(settings.loginUrl, { waitUntil: "domcontentloaded" });
-  await page.waitForSelector(settings.selectors.usuarioInput, { timeout: 15000 });
-  await captureDebugScreenshot(page, settings, screenshotsDir, logger, "Pantalla de login cargada", "00-login");
-  await page.fill(settings.selectors.usuarioInput, settings.credentials.usuario);
-  await page.fill(settings.selectors.passwordInput, settings.credentials.password);
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    if (attempt > 1) {
+      logger.warn("PAMI devolvio sesion expirada o sin permisos. Limpiando sesion y reintentando login...");
+      await page.context().clearCookies().catch(() => null);
+    }
 
-  await Promise.allSettled([
-    page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15000 }),
-    page.click(settings.selectors.loginBtn)
-  ]);
+    logger.info(`Iniciando sesión en PAMI${attempt > 1 ? ` (intento ${attempt})` : ""}...`);
+    await page.goto(settings.loginUrl, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector(settings.selectors.usuarioInput, { timeout: 15000 });
+    await captureDebugScreenshot(
+      page,
+      settings,
+      screenshotsDir,
+      logger,
+      "Pantalla de login cargada",
+      attempt > 1 ? `00-login-intento-${attempt}` : "00-login"
+    );
+    await page.fill(settings.selectors.usuarioInput, settings.credentials.usuario);
+    await page.fill(settings.selectors.passwordInput, settings.credentials.password);
 
-  await page.goto(settings.formUrl, { waitUntil: "domcontentloaded" });
-  await waitForPamiForm(page, settings);
-  await captureDebugScreenshot(page, settings, screenshotsDir, logger, "Formulario de carga abierto", "01-formulario");
-  logger.info("Sesión iniciada correctamente.");
+    await Promise.allSettled([
+      page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15000 }),
+      page.click(settings.selectors.loginBtn)
+    ]);
+
+    await page.goto(settings.formUrl, { waitUntil: "domcontentloaded" });
+    try {
+      await waitForPamiForm(page, settings);
+    } catch (error) {
+      if (attempt < 2 && error.code === "PAMI_SESSION_BLOCKED") {
+        continue;
+      }
+      throw error;
+    }
+
+    await captureDebugScreenshot(page, settings, screenshotsDir, logger, "Formulario de carga abierto", "01-formulario");
+    logger.info("Sesión iniciada correctamente.");
+    return;
+  }
 }
 
 async function procesarPaciente(page, patient, patientFolder, settings, screenshotsDir, logger, capturePrefix) {
