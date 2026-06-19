@@ -339,6 +339,16 @@ async function typeLikeHuman(page, selector, value) {
   await page.type(selector, String(value), { delay: 10 });
 }
 
+async function closeAutocompleteMenus(page) {
+  await page.keyboard.press("Escape").catch(() => null);
+  await page.evaluate(() => {
+    for (const element of document.querySelectorAll(".ui-autocomplete, .ui-menu")) {
+      element.style.display = "none";
+      element.setAttribute("aria-hidden", "true");
+    }
+  }).catch(() => null);
+}
+
 async function waitForEditableInput(page, selector, timeout = TIMEOUTS.selector) {
   const input = page.locator(selector).first();
   await input.waitFor({ state: "visible", timeout });
@@ -439,7 +449,7 @@ async function clickExactAutocompleteSuggestion(page, selectors, text, timeout =
     }
   }
 
-  throw new Error(`No se encontro el afiliado ${text} en el autocomplete.`);
+  throw new Error(`No se encontro "${text}" en el autocomplete.`);
 }
 
 function buildAfiliadoSearchCandidates(afiliado) {
@@ -481,10 +491,12 @@ async function buscarYSeleccionarAfiliado(page, settings, patient, logger) {
 }
 
 async function acceptAutocompleteOrKeepTypedValue(page, selector, selectors, text, timeout = TIMEOUTS.autocompleteQuick) {
+  await closeAutocompleteMenus(page);
   await pressEnter(page, selector);
 
   try {
     await clickAutocompleteSuggestion(page, selectors, text, timeout);
+    await closeAutocompleteMenus(page);
     return;
   } catch (error) {
     if (!String(error.message || error).includes("autocomplete")) {
@@ -499,9 +511,12 @@ async function acceptAutocompleteOrKeepTypedValue(page, selector, selectors, tex
 }
 
 async function selectRequiredAutocomplete(page, selector, selectors, text, timeout) {
+  await closeAutocompleteMenus(page);
+  await page.locator(selector).first().focus();
   await pressEnter(page, selector);
   await clickExactAutocompleteSuggestion(page, selectors, text, timeout);
   await page.locator(selector).first().blur().catch(() => null);
+  await closeAutocompleteMenus(page);
 }
 
 async function refreshMedicalDataFields(page, settings) {
@@ -942,6 +957,14 @@ async function waitForPamiForm(page, settings, options = {}) {
   await throwPamiFormError(page, errorOptions);
 }
 
+async function abrirFormularioNuevo(page, settings, options = {}) {
+  await closeAutocompleteMenus(page);
+  await page.goto("about:blank", { waitUntil: "domcontentloaded", timeout: TIMEOUTS.shortAction }).catch(() => null);
+  await page.goto(settings.formUrl, { waitUntil: "domcontentloaded", timeout: TIMEOUTS.pageLoad });
+  await waitForPamiForm(page, settings, options);
+  await closeAutocompleteMenus(page);
+}
+
 async function asegurarNroBeneficio(page) {
   const radios = page.locator('input[type="radio"][name="tipo_busqueda_datos_del_afiliado"]');
   await radios.first().waitFor({ state: "attached", timeout: TIMEOUTS.selector });
@@ -1236,8 +1259,7 @@ async function generarYVolver(page, settings, screenshotsDir, logger, capturePre
     }
   }
 
-  await page.goto(settings.formUrl, { waitUntil: "domcontentloaded", timeout: TIMEOUTS.pageLoad });
-  await waitForPamiForm(page, settings, {
+  await abrirFormularioNuevo(page, settings, {
     screenshotsDir,
     logger,
     screenshotName: `${capturePrefix}-error-formulario-siguiente`
@@ -1275,9 +1297,8 @@ async function login(page, settings, logger, screenshotsDir) {
     await page.fill(settings.selectors.passwordInput, settings.credentials.password);
     await clickLoginButton(page, settings);
 
-    await page.goto(settings.formUrl, { waitUntil: "domcontentloaded", timeout: TIMEOUTS.pageLoad });
     try {
-      await waitForPamiForm(page, settings, {
+      await abrirFormularioNuevo(page, settings, {
         screenshotsDir,
         logger,
         screenshotName: attempt > 1 ? `01-error-formulario-intento-${attempt}` : "01-error-formulario"
@@ -1619,7 +1640,11 @@ async function runPamiBot({ rawSettings, inputDir, screenshotsDir, videosDir, lo
 
         throwIfCancelled(signal);
         try {
-          await page.goto(settings.formUrl, { waitUntil: "domcontentloaded", timeout: TIMEOUTS.pageLoad });
+          await abrirFormularioNuevo(page, settings, {
+            screenshotsDir,
+            logger,
+            screenshotName: `${patient.afiliado}-error-formulario-inicial`
+          });
           throwIfCancelled(signal);
           await procesarPaciente(
             page,
