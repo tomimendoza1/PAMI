@@ -1200,7 +1200,8 @@ async function runPamiBot({ rawSettings, inputDir, screenshotsDir, log, signal }
     throwIfCancelled(signal);
     browser = await chromium.launch({
       channel: settings.browserChannel || undefined,
-      headless: settings.headless
+      headless: settings.headless,
+      args: ["--no-sandbox", "--disable-dev-shm-usage"]
     });
     context = await browser.newContext();
     page = await context.newPage();

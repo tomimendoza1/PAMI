@@ -17,7 +17,7 @@ services:
       - key: PAMI_HEADLESS
         value: "true"
       - key: PAMI_BROWSER_CHANNEL
-        value: ""
+        value: chrome
       - key: PAMI_AUTH_SAME_SITE
         value: Lax
       - key: PAMI_AUTH_SECRET
