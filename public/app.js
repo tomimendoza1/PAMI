@@ -280,6 +280,7 @@ function buildSettings() {
     browserChannel: document.querySelector("#browserChannel").value,
     headless: document.querySelector("#headless").checked,
     debugScreenshots: document.querySelector("#debugScreenshots").checked,
+    recordVideo: document.querySelector("#recordVideo").checked,
     docsTypeText: document.querySelector("#docsTypeText").value.trim(),
     credentials: {
       usuario: document.querySelector("#usuario").value.trim(),
@@ -320,6 +321,7 @@ async function loadDefaults() {
   document.querySelector("#browserChannel").value = defaults.browserChannel;
   document.querySelector("#headless").checked = defaults.headless;
   document.querySelector("#debugScreenshots").checked = Boolean(defaults.debugScreenshots);
+  document.querySelector("#recordVideo").checked = Boolean(defaults.recordVideo);
   document.querySelector("#docsTypeText").value = defaults.docsTypeText;
   document.querySelector("#motivo").value = defaults.fixed.motivo;
   document.querySelector("#diagnostico").value = defaults.fixed.diagnostico;

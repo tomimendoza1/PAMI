@@ -61,6 +61,7 @@ function mergeSettings(base, overrides) {
   }
   next.headless = typeof src.headless === "boolean" ? src.headless : next.headless;
   next.debugScreenshots = typeof src.debugScreenshots === "boolean" ? src.debugScreenshots : next.debugScreenshots;
+  next.recordVideo = typeof src.recordVideo === "boolean" ? src.recordVideo : next.recordVideo;
   next.docsTypeText = src.docsTypeText || next.docsTypeText;
   next.credentials = {
     ...next.credentials,
@@ -356,6 +357,37 @@ async function waitForEditableInput(page, selector, timeout = TIMEOUTS.selector)
   }
 
   throw new Error(`El campo ${selector} no quedo listo para escribir.`);
+}
+
+async function clickLoginButton(page, settings) {
+  await page.evaluate((selectors) => {
+    for (const selector of [selectors.usuarioInput, selectors.passwordInput]) {
+      const element = document.querySelector(selector);
+      if (!element) {
+        continue;
+      }
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+      element.dispatchEvent(new Event("change", { bubbles: true }));
+      element.dispatchEvent(new Event("blur", { bubbles: true }));
+    }
+  }, settings.selectors);
+
+  const button = page.locator(settings.selectors.loginBtn).first();
+  await button.waitFor({ state: "visible", timeout: TIMEOUTS.selector });
+
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < TIMEOUTS.loginNavigation) {
+    if (await button.isEnabled().catch(() => false)) {
+      const navigation = page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: TIMEOUTS.loginNavigation }).catch(() => null);
+      await button.click({ timeout: TIMEOUTS.shortAction });
+      await navigation;
+      return;
+    }
+
+    await sleep(PAUSES.short);
+  }
+
+  throw new Error("El boton Ingresar no quedo habilitado para iniciar sesion.");
 }
 
 async function pressEnter(page, selector) {
@@ -1133,11 +1165,7 @@ async function login(page, settings, logger, screenshotsDir) {
     );
     await page.fill(settings.selectors.usuarioInput, settings.credentials.usuario);
     await page.fill(settings.selectors.passwordInput, settings.credentials.password);
-
-    await Promise.allSettled([
-      page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: TIMEOUTS.loginNavigation }),
-      page.click(settings.selectors.loginBtn, { timeout: TIMEOUTS.shortAction })
-    ]);
+    await clickLoginButton(page, settings);
 
     await page.goto(settings.formUrl, { waitUntil: "domcontentloaded", timeout: TIMEOUTS.pageLoad });
     try {
@@ -1413,6 +1441,7 @@ async function runPamiBot({ rawSettings, inputDir, screenshotsDir, videosDir, lo
   let browser;
   let context;
   let page;
+  const effectiveVideosDir = settings.recordVideo ? videosDir : null;
 
   try {
     throwIfCancelled(signal);
@@ -1420,9 +1449,9 @@ async function runPamiBot({ rawSettings, inputDir, screenshotsDir, videosDir, lo
     context = await browser.newContext({
       timezoneId: settings.timezoneId,
       locale: settings.locale,
-      recordVideo: videosDir
+      recordVideo: effectiveVideosDir
         ? {
-            dir: videosDir,
+            dir: effectiveVideosDir,
             size: {
               width: 1280,
               height: 720
@@ -1512,7 +1541,7 @@ async function runPamiBot({ rawSettings, inputDir, screenshotsDir, videosDir, lo
       await context.close().catch(() => null);
     }
     if (page) {
-      await saveRunVideo(page, videosDir, logger);
+      await saveRunVideo(page, effectiveVideosDir, logger);
     }
     if (browser) {
       await browser.close().catch(() => null);

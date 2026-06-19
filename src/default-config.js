@@ -18,6 +18,7 @@ const defaultSettings = {
   timezoneId: process.env.PAMI_TIMEZONE_ID || "America/Argentina/Buenos_Aires",
   locale: process.env.PAMI_BROWSER_LOCALE || "es-AR",
   debugScreenshots: readBoolEnv("PAMI_DEBUG_SCREENSHOTS", false),
+  recordVideo: readBoolEnv("PAMI_RECORD_VIDEO", false),
   docsTypeText:
     "AUDIOMETRIA / LOGOAUDIOMETRIA / TIMPANOMETRIA / IMPEDANCIOMETRIA + DERIVACION DEL ESPECIALISTA EN ORL",
   credentials: {
