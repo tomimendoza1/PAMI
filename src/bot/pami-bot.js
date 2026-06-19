@@ -379,11 +379,11 @@ async function buscarYSeleccionarAfiliado(page, settings, patient, logger) {
   throw lastError || new Error(`No se pudo seleccionar afiliado ${patient.afiliado}.`);
 }
 
-async function acceptAutocompleteOrKeepTypedValue(page, selector, selectors, text) {
+async function acceptAutocompleteOrKeepTypedValue(page, selector, selectors, text, timeout = 1800) {
   await pressEnter(page, selector);
 
   try {
-    await clickAutocompleteSuggestion(page, selectors, text, 1800);
+    await clickAutocompleteSuggestion(page, selectors, text, timeout);
     return;
   } catch (error) {
     if (!String(error.message || error).includes("autocomplete")) {
@@ -395,6 +395,70 @@ async function acceptAutocompleteOrKeepTypedValue(page, selector, selectors, tex
   if (!String(value || "").trim()) {
     throw new Error(`No se pudo confirmar el valor "${text}" en ${selector}.`);
   }
+}
+
+async function refreshMedicalDataFields(page, settings) {
+  await page.evaluate((selectors) => {
+    const dispatch = (element) => {
+      if (!element) {
+        return;
+      }
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+      element.dispatchEvent(new Event("change", { bubbles: true }));
+      element.dispatchEvent(new Event("blur", { bubbles: true }));
+    };
+
+    dispatch(document.querySelector(selectors.diagnosticoInput));
+    dispatch(document.querySelector(selectors.modalidadSelect));
+    dispatch(document.querySelector(selectors.practicaInput));
+  }, settings.selectors);
+}
+
+async function getMedicalDataDiagnostic(page, settings) {
+  return page.evaluate((selectors) => {
+    const readInput = (selector) => {
+      const element = document.querySelector(selector);
+      return element ? String(element.value || "").trim() : "";
+    };
+    const readSelect = (selector) => {
+      const element = document.querySelector(selector);
+      if (!element) {
+        return "";
+      }
+      const option = element.options[element.selectedIndex];
+      return option ? String(option.textContent || "").trim() : String(element.value || "").trim();
+    };
+    const button = document.querySelector("#boton_datos_medicos");
+
+    return {
+      diagnostico: readInput(selectors.diagnosticoInput),
+      modalidad: readSelect(selectors.modalidadSelect),
+      practica: readInput(selectors.practicaInput),
+      botonAgregar: button
+        ? {
+            disabled: Boolean(button.disabled),
+            text: String(button.textContent || "").replace(/\s+/g, " ").trim()
+          }
+        : null
+    };
+  }, settings.selectors);
+}
+
+function formatMedicalDataDiagnostic(diagnostic) {
+  if (!diagnostic) {
+    return "sin diagnostico disponible";
+  }
+
+  const button = diagnostic.botonAgregar
+    ? `boton="${diagnostic.botonAgregar.text || "sin texto"}", disabled=${diagnostic.botonAgregar.disabled}`
+    : "boton no encontrado";
+
+  return [
+    `diagnostico="${diagnostic.diagnostico || ""}"`,
+    `modalidad="${diagnostic.modalidad || ""}"`,
+    `practica="${diagnostic.practica || ""}"`,
+    button
+  ].join(" | ");
 }
 
 async function selectByText(page, selector, text) {
@@ -869,34 +933,63 @@ async function cargarNumeroOME(page, settings, ome) {
   return true;
 }
 
-async function agregarPractica(page) {
+async function waitForDatosMedicosEnabled(page, settings, timeout = 2000) {
   const button = page.locator("#boton_datos_medicos").first();
   await button.waitFor({ state: "visible", timeout: 15000 });
   await button.scrollIntoViewIfNeeded();
-  await button.click();
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeout) {
+    if (await button.isEnabled().catch(() => false)) {
+      return true;
+    }
+
+    await refreshMedicalDataFields(page, settings).catch(() => null);
+    await sleep(250);
+  }
+
+  return false;
+}
+
+async function agregarPractica(page, settings) {
+  const button = page.locator("#boton_datos_medicos").first();
+  const enabled = await waitForDatosMedicosEnabled(page, settings);
+  if (!enabled) {
+    return false;
+  }
+
+  await button.click({ timeout: 3000 });
   await page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => null);
   await page.waitForTimeout(1200);
+  return true;
 }
 
 async function agregarPracticaYEsperarDocumentacion(page, settings) {
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    await agregarPractica(page);
-    if (await waitForUsableSelectOptions(page, settings.selectors.documentacionSelect, 12000)) {
+  let lastDiagnostic = null;
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const clicked = await agregarPractica(page, settings);
+    if (!clicked) {
+      lastDiagnostic = await getMedicalDataDiagnostic(page, settings).catch(() => null);
+    } else if (await waitForUsableSelectOptions(page, settings.selectors.documentacionSelect, 6000)) {
       return;
     }
 
-    if (attempt < 3) {
+    if (attempt < 2) {
       await typeLikeHuman(page, settings.selectors.practicaInput, settings.fixed.practica);
       await acceptAutocompleteOrKeepTypedValue(
         page,
         settings.selectors.practicaInput,
         settings.autocompleteSelectors,
-        settings.fixed.practica
+        settings.fixed.practica,
+        1000
       );
+      await refreshMedicalDataFields(page, settings);
     }
   }
 
-  throw new Error("No se habilito documentacion despues de presionar Agregar en Datos Medicos.");
+  const details = formatMedicalDataDiagnostic(lastDiagnostic || (await getMedicalDataDiagnostic(page, settings).catch(() => null)));
+  throw new Error(`No se pudo agregar la practica en Datos Medicos. Estado final: ${details}`);
 }
 
 async function captureDebugScreenshot(page, settings, screenshotsDir, logger, label, fileName) {
