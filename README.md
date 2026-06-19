@@ -69,6 +69,10 @@ En Railway va el backend completo. El repo ya incluye `Dockerfile`, asi que pode
   Necesario si el frontend en Vercel va a consumir la API en Railway.
 - `PAMI_HEADLESS=true`
   Ya viene asi por defecto en Linux.
+- `PAMI_TIMEZONE_ID=America/Argentina/Buenos_Aires`
+  Evita que PAMI rechace la operacion por diferencia de fecha cuando el servidor corre en UTC.
+- `PAMI_BROWSER_LOCALE=es-AR`
+  Fuerza locale argentina en el navegador automatizado.
 - `PAMI_BROWSER_CHANNEL=`
   Vacio para usar Chromium incluido en la imagen de Playwright.
 - `PAMI_WEB_USERNAME`
@@ -113,6 +117,8 @@ En Render tambien va el backend completo. El repo incluye `render.yaml` para cre
 - `CORS_ORIGIN=*`
 - `PAMI_HEADLESS=true`
 - `PAMI_BROWSER_CHANNEL=`
+- `PAMI_TIMEZONE_ID=America/Argentina/Buenos_Aires`
+- `PAMI_BROWSER_LOCALE=es-AR`
 - `PAMI_AUTH_SAME_SITE=Lax`
 - `PAMI_AUTH_SECRET` generado automaticamente por Render
 - `PAMI_LOGIN_URL`
@@ -182,6 +188,8 @@ Vercel va a servir la UI y esa UI va a hablar con Railway usando la URL que pong
 - `PAMI_FORM_URL`
 - `PAMI_BROWSER_CHANNEL`
 - `PAMI_HEADLESS`
+- `PAMI_TIMEZONE_ID`
+- `PAMI_BROWSER_LOCALE`
 - `STORAGE_DIR`
 - `CORS_ORIGIN`
 - `PAMI_WEB_USERNAME`

@@ -21,6 +21,12 @@ function mergeSettings(base, overrides) {
   if (typeof src.browserChannel === "string") {
     next.browserChannel = src.browserChannel;
   }
+  if (typeof src.timezoneId === "string" && src.timezoneId.trim()) {
+    next.timezoneId = src.timezoneId.trim();
+  }
+  if (typeof src.locale === "string" && src.locale.trim()) {
+    next.locale = src.locale.trim();
+  }
   next.headless = typeof src.headless === "boolean" ? src.headless : next.headless;
   next.debugScreenshots = typeof src.debugScreenshots === "boolean" ? src.debugScreenshots : next.debugScreenshots;
   next.docsTypeText = src.docsTypeText || next.docsTypeText;
@@ -1263,6 +1269,8 @@ async function runPamiBot({ rawSettings, inputDir, screenshotsDir, videosDir, lo
     throwIfCancelled(signal);
     browser = await chromium.launch(getBrowserLaunchOptions(settings, logger));
     context = await browser.newContext({
+      timezoneId: settings.timezoneId,
+      locale: settings.locale,
       recordVideo: videosDir
         ? {
             dir: videosDir,
