@@ -1091,6 +1091,29 @@ async function saveErrorScreenshot(page, screenshotsDir, fileName) {
   return targetPath;
 }
 
+async function saveRunVideo(page, videosDir, logger) {
+  if (!page || !videosDir) {
+    return null;
+  }
+
+  const video = page.video();
+  if (!video) {
+    return null;
+  }
+
+  fs.mkdirSync(videosDir, { recursive: true });
+  const targetPath = path.join(videosDir, `bot-${Date.now()}.webm`);
+  try {
+    const sourcePath = await video.path();
+    fs.copyFileSync(sourcePath, targetPath);
+    logger.info(`Video de la ejecucion guardado. Video: ${targetPath}`);
+    return targetPath;
+  } catch (error) {
+    logger.warn(`No se pudo guardar el video de la ejecucion: ${error.message}`);
+    return null;
+  }
+}
+
 function sanitizeSlug(value) {
   return String(value || "")
     .normalize("NFD")
@@ -1223,7 +1246,7 @@ async function inspectPatientsInput(inputDir) {
   return inspection;
 }
 
-async function runPamiBot({ rawSettings, inputDir, screenshotsDir, log, signal }) {
+async function runPamiBot({ rawSettings, inputDir, screenshotsDir, videosDir, log, signal }) {
   const settings = mergeSettings(defaultSettings, rawSettings);
   const logger = createLogger(log);
   const summary = buildSummary();
@@ -1239,7 +1262,17 @@ async function runPamiBot({ rawSettings, inputDir, screenshotsDir, log, signal }
   try {
     throwIfCancelled(signal);
     browser = await chromium.launch(getBrowserLaunchOptions(settings, logger));
-    context = await browser.newContext();
+    context = await browser.newContext({
+      recordVideo: videosDir
+        ? {
+            dir: videosDir,
+            size: {
+              width: 1280,
+              height: 720
+            }
+          }
+        : undefined
+    });
     page = await context.newPage();
     page.setDefaultTimeout(20000);
 
@@ -1319,6 +1352,9 @@ async function runPamiBot({ rawSettings, inputDir, screenshotsDir, log, signal }
   } finally {
     if (context) {
       await context.close().catch(() => null);
+    }
+    if (page) {
+      await saveRunVideo(page, videosDir, logger);
     }
     if (browser) {
       await browser.close().catch(() => null);

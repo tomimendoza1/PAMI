@@ -236,13 +236,16 @@ function createJob(rawSettings) {
   const dir = path.join(JOBS_DIR, id);
   const inputDir = path.join(dir, "input");
   const screenshotsDir = path.join(dir, "screenshots");
+  const videosDir = path.join(dir, "videos");
   fs.mkdirSync(inputDir, { recursive: true });
+  fs.mkdirSync(videosDir, { recursive: true });
 
   const job = {
     id,
     dir,
     inputDir,
     screenshotsDir,
+    videosDir,
     createdAt: new Date().toISOString(),
     startedAt: null,
     finishedAt: null,
@@ -276,6 +279,10 @@ function appendLog(job, level, message) {
   if (screenshotPath) {
     entry.screenshotUrl = `/api/jobs/${job.id}/screenshots/${encodeURIComponent(path.basename(screenshotPath))}`;
   }
+  const videoPath = extractArtifactPath(job.videosDir, message, "Video:");
+  if (videoPath) {
+    entry.videoUrl = `/api/jobs/${job.id}/videos/${encodeURIComponent(path.basename(videoPath))}`;
+  }
 
   job.logs.push(entry);
   broadcast(job, "log", entry);
@@ -285,20 +292,27 @@ function appendLog(job, level, message) {
 }
 
 function extractScreenshotPath(job, message) {
-  const marker = "Captura:";
+  return extractArtifactPath(job.screenshotsDir, message, "Captura:");
+}
+
+function extractArtifactPath(baseDir, message, marker) {
   const markerIndex = String(message || "").indexOf(marker);
   if (markerIndex < 0) {
     return "";
   }
 
-  const rawPath = String(message).slice(markerIndex + marker.length).trim();
+  const rawPath = String(message)
+    .slice(markerIndex + marker.length)
+    .trim()
+    .split(/\s+\|/)[0]
+    .trim();
   if (!rawPath) {
     return "";
   }
 
   const resolvedPath = path.resolve(rawPath);
-  const screenshotsDir = path.resolve(job.screenshotsDir);
-  if (!resolvedPath.startsWith(`${screenshotsDir}${path.sep}`)) {
+  const resolvedBaseDir = path.resolve(baseDir);
+  if (!resolvedPath.startsWith(`${resolvedBaseDir}${path.sep}`)) {
     return "";
   }
 
@@ -370,6 +384,7 @@ async function executeJob(job) {
       rawSettings: job.rawSettings,
       inputDir: job.inputDir,
       screenshotsDir: job.screenshotsDir,
+      videosDir: job.videosDir,
       signal: job,
       log: (level, message) => appendLog(job, level, message)
     });
@@ -519,6 +534,24 @@ app.get("/api/jobs/:id/screenshots/:file", (req, res) => {
   }
 
   res.setHeader("Cache-Control", "no-store");
+  return res.sendFile(targetPath);
+});
+
+app.get("/api/jobs/:id/videos/:file", (req, res) => {
+  const job = jobs.get(req.params.id);
+  if (!job) {
+    return res.status(404).json({ error: "Trabajo no encontrado." });
+  }
+
+  const fileName = path.basename(req.params.file || "");
+  const targetPath = path.resolve(job.videosDir, fileName);
+  const videosDir = path.resolve(job.videosDir);
+  if (!targetPath.startsWith(`${videosDir}${path.sep}`) || !fs.existsSync(targetPath)) {
+    return res.status(404).json({ error: "Video no encontrado." });
+  }
+
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Content-Type", "video/webm");
   return res.sendFile(targetPath);
 });
 

@@ -111,7 +111,21 @@ function buildAuthenticatedUrl(path) {
   return url.toString();
 }
 
-function addLog(message, level = "info", at = new Date().toISOString(), screenshotUrl = "") {
+function appendLogLink(line, href, text) {
+  if (!href) {
+    return;
+  }
+
+  const link = document.createElement("a");
+  link.className = "log-line__link";
+  link.href = buildAuthenticatedUrl(href);
+  link.target = "_blank";
+  link.rel = "noreferrer";
+  link.textContent = text;
+  line.append(" ", link);
+}
+
+function addLog(message, level = "info", at = new Date().toISOString(), screenshotUrl = "", videoUrl = "") {
   const line = document.createElement("p");
   const time = new Date(at).toLocaleTimeString("es-AR", {
     hour: "2-digit",
@@ -121,15 +135,8 @@ function addLog(message, level = "info", at = new Date().toISOString(), screensh
   line.className = `log-line log-line--${level === "info" ? "ok" : level}`;
   line.append(document.createTextNode(`[${time}] ${message}`));
 
-  if (screenshotUrl) {
-    const link = document.createElement("a");
-    link.className = "log-line__link";
-    link.href = buildAuthenticatedUrl(screenshotUrl);
-    link.target = "_blank";
-    link.rel = "noreferrer";
-    link.textContent = "Ver captura";
-    line.append(" ", link);
-  }
+  appendLogLink(line, screenshotUrl, "Ver captura");
+  appendLogLink(line, videoUrl, "Ver video");
 
   logStream.appendChild(line);
   logStream.scrollTop = logStream.scrollHeight;
@@ -347,7 +354,9 @@ function connectToStream(id) {
     jobId.textContent = snapshot.id;
     setStatus(snapshot.status);
     setSummary(snapshot.summary, snapshot.error);
-    (snapshot.logs || []).forEach((entry) => addLog(entry.message, entry.level, entry.at, entry.screenshotUrl));
+    (snapshot.logs || []).forEach((entry) =>
+      addLog(entry.message, entry.level, entry.at, entry.screenshotUrl, entry.videoUrl)
+    );
     if (!isActiveJobStatus(snapshot.status)) {
       setBusy(false);
       activeJobId = "";
@@ -357,7 +366,7 @@ function connectToStream(id) {
 
   activeSource.addEventListener("log", (event) => {
     const entry = JSON.parse(event.data);
-    addLog(entry.message, entry.level, entry.at, entry.screenshotUrl);
+    addLog(entry.message, entry.level, entry.at, entry.screenshotUrl, entry.videoUrl);
   });
 
   activeSource.addEventListener("status", (event) => {
