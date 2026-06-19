@@ -4,6 +4,34 @@ const mammoth = require("mammoth");
 const { chromium } = require("playwright-core");
 const { defaultSettings } = require("../default-config");
 
+const TIMEOUTS = {
+  defaultAction: 6000,
+  shortAction: 2000,
+  selector: 4000,
+  loginNavigation: 6000,
+  formReady: 6000,
+  autocomplete: 1500,
+  autocompleteQuick: 900,
+  documentacionOptions: 8000,
+  documentacionReady: 2500,
+  fileChooser: 3000,
+  networkIdle: 1500,
+  confirmation: 2500,
+  datosMedicosButton: 1000,
+  datosMedicosClick: 1500,
+  omeInput: 1500,
+  bodyText: 500
+};
+
+const PAUSES = {
+  poll: 100,
+  short: 120,
+  afterRadio: 60,
+  afterFileAdd: 400,
+  afterOme: 250,
+  afterPracticeAdd: 400
+};
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -284,7 +312,7 @@ async function readDocx(file) {
   };
 }
 
-async function waitVisibleAny(page, selectors, timeout = 12000) {
+async function waitVisibleAny(page, selectors, timeout = TIMEOUTS.autocomplete) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeout) {
     for (const selector of selectors) {
@@ -293,15 +321,15 @@ async function waitVisibleAny(page, selectors, timeout = 12000) {
         return selector;
       }
     }
-    await sleep(150);
+    await sleep(PAUSES.poll);
   }
   throw new Error("No apareció el autocomplete del sitio.");
 }
 
 async function typeLikeHuman(page, selector, value) {
-  await page.waitForSelector(selector, { timeout: 15000 });
+  await page.waitForSelector(selector, { timeout: TIMEOUTS.selector });
   await page.fill(selector, "");
-  await page.type(selector, String(value), { delay: 25 });
+  await page.type(selector, String(value), { delay: 10 });
 }
 
 async function pressEnter(page, selector) {
@@ -309,7 +337,7 @@ async function pressEnter(page, selector) {
   await page.keyboard.press("Enter");
 }
 
-async function clickAutocompleteSuggestion(page, selectors, text, timeout = 12000) {
+async function clickAutocompleteSuggestion(page, selectors, text, timeout = TIMEOUTS.autocomplete) {
   const visibleSelector = await waitVisibleAny(page, selectors, timeout);
   const items = await page.$$(visibleSelector);
   for (const item of items) {
@@ -327,7 +355,7 @@ async function clickAutocompleteSuggestion(page, selectors, text, timeout = 1200
   await items[0].click();
 }
 
-async function clickExactAutocompleteSuggestion(page, selectors, text, timeout = 12000) {
+async function clickExactAutocompleteSuggestion(page, selectors, text, timeout = TIMEOUTS.autocomplete) {
   const visibleSelector = await waitVisibleAny(page, selectors, timeout);
   const items = await page.$$(visibleSelector);
   for (const item of items) {
@@ -379,7 +407,7 @@ async function buscarYSeleccionarAfiliado(page, settings, patient, logger) {
   throw lastError || new Error(`No se pudo seleccionar afiliado ${patient.afiliado}.`);
 }
 
-async function acceptAutocompleteOrKeepTypedValue(page, selector, selectors, text, timeout = 1800) {
+async function acceptAutocompleteOrKeepTypedValue(page, selector, selectors, text, timeout = TIMEOUTS.autocompleteQuick) {
   await pressEnter(page, selector);
 
   try {
@@ -462,7 +490,7 @@ function formatMedicalDataDiagnostic(diagnostic) {
 }
 
 async function selectByText(page, selector, text) {
-  await page.waitForSelector(selector, { timeout: 15000 });
+  await page.waitForSelector(selector, { timeout: TIMEOUTS.selector });
   const selectedText = await page.evaluate(
     ({ selector: cssSelector, text: desiredText }) => {
       const normalize = (value) =>
@@ -496,8 +524,8 @@ async function selectByText(page, selector, text) {
 }
 
 async function selectByBestText(page, selector, text) {
-  await page.waitForSelector(selector, { timeout: 15000 });
-  const timeout = 15000;
+  await page.waitForSelector(selector, { timeout: TIMEOUTS.selector });
+  const timeout = TIMEOUTS.selector;
   const startedAt = Date.now();
   let lastOptions = [];
 
@@ -581,7 +609,7 @@ async function selectByBestText(page, selector, text) {
       return String(result.selectedText || "").trim();
     }
 
-    await sleep(250);
+    await sleep(PAUSES.poll);
   }
 
   const available = lastOptions.slice(0, 12).join(" | ");
@@ -591,8 +619,8 @@ async function selectByBestText(page, selector, text) {
 }
 
 async function selectDocumentacionOption(page, selector, targetText) {
-  await page.waitForSelector(selector, { timeout: 15000 });
-  const timeout = 45000;
+  await page.waitForSelector(selector, { timeout: TIMEOUTS.selector });
+  const timeout = TIMEOUTS.documentacionOptions;
   const startedAt = Date.now();
   let lastOptions = [];
 
@@ -713,7 +741,7 @@ async function selectDocumentacionOption(page, selector, targetText) {
       return String(result.selectedText || "").trim();
     }
 
-    await sleep(250);
+    await sleep(PAUSES.short);
   }
 
   throw new Error(
@@ -745,13 +773,13 @@ async function hasUsableSelectOptions(page, selector) {
   }, selector);
 }
 
-async function waitForUsableSelectOptions(page, selector, timeout = 12000) {
+async function waitForUsableSelectOptions(page, selector, timeout = TIMEOUTS.documentacionReady) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeout) {
     if (await hasUsableSelectOptions(page, selector)) {
       return true;
     }
-    await sleep(300);
+    await sleep(PAUSES.short);
   }
   return false;
 }
@@ -760,7 +788,7 @@ async function getPageDiagnostic(page) {
   const currentUrl = page.url();
   const title = await page.title().catch(() => "");
   const loginVisible = await page.locator("#c_usuario, #password, #ingresar").first().isVisible().catch(() => false);
-  const bodyText = await page.locator("body").innerText({ timeout: 1000 }).catch(() => "");
+  const bodyText = await page.locator("body").innerText({ timeout: TIMEOUTS.bodyText }).catch(() => "");
   const compactText = bodyText.replace(/\s+/g, " ").trim().slice(0, 300);
 
   return [
@@ -774,7 +802,7 @@ async function getPageDiagnostic(page) {
 }
 
 async function getPamiAccessBlocker(page) {
-  const bodyText = await page.locator("body").innerText({ timeout: 1000 }).catch(() => "");
+  const bodyText = await page.locator("body").innerText({ timeout: TIMEOUTS.bodyText }).catch(() => "");
   const normalized = normalizeText(bodyText);
 
   if (normalized.includes("no tiene permisos") || normalized.includes("sesion ha expirado")) {
@@ -803,7 +831,7 @@ async function throwPamiFormError(page, options = {}) {
 }
 
 async function waitForPamiForm(page, settings, options = {}) {
-  const timeout = typeof options === "number" ? options : options.timeout || 20000;
+  const timeout = typeof options === "number" ? options : options.timeout || TIMEOUTS.formReady;
   const errorOptions =
     typeof options === "number"
       ? {}
@@ -829,7 +857,7 @@ async function waitForPamiForm(page, settings, options = {}) {
     if (await getPamiAccessBlocker(page)) {
       await throwPamiFormError(page, errorOptions);
     }
-    await sleep(200);
+    await sleep(PAUSES.short);
   }
 
   await throwPamiFormError(page, errorOptions);
@@ -837,9 +865,9 @@ async function waitForPamiForm(page, settings, options = {}) {
 
 async function asegurarNroBeneficio(page) {
   const radios = page.locator('input[type="radio"][name="tipo_busqueda_datos_del_afiliado"]');
-  await radios.first().waitFor({ state: "attached", timeout: 15000 });
+  await radios.first().waitFor({ state: "attached", timeout: TIMEOUTS.selector });
 
-  for (let attempt = 0; attempt < 12; attempt += 1) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
     await page.evaluate(() => {
       const items = [...document.querySelectorAll('input[type="radio"][name="tipo_busqueda_datos_del_afiliado"]')];
       if (items.length < 3) {
@@ -857,7 +885,7 @@ async function asegurarNroBeneficio(page) {
       radio.dispatchEvent(new Event("change", { bubbles: true }));
     });
 
-    await page.waitForTimeout(120);
+    await page.waitForTimeout(PAUSES.afterRadio);
     if (await radios.nth(2).isChecked()) {
       return;
     }
@@ -891,7 +919,7 @@ async function subirArchivoDocumentacion(page, filePath) {
   }
 
   const [chooser] = await Promise.all([
-    page.waitForEvent("filechooser", { timeout: 15000 }),
+    page.waitForEvent("filechooser", { timeout: TIMEOUTS.fileChooser }),
     page.getByRole("button", { name: /Examinar/i }).click()
   ]);
   await chooser.setFiles(filePath);
@@ -905,21 +933,21 @@ async function cargarDocumentacionPDF(page, patient, patientFolder, settings) {
 
   await selectDocumentacionOption(page, settings.selectors.documentacionSelect, settings.docsTypeText);
   await subirArchivoDocumentacion(page, filePath);
-  await page.click(settings.selectors.documentacionAgregarBtn);
-  await page.waitForTimeout(1200);
+  await page.click(settings.selectors.documentacionAgregarBtn, { timeout: TIMEOUTS.shortAction });
+  await page.waitForTimeout(PAUSES.afterFileAdd);
 }
 
 async function cargarNumeroOME(page, settings, ome) {
   const selector = settings.selectors.omeInput;
   const input = page.locator(selector).first();
   try {
-    await input.waitFor({ state: "visible", timeout: 8000 });
+    await input.waitFor({ state: "visible", timeout: TIMEOUTS.omeInput });
   } catch (_error) {
     return false;
   }
 
   await page.fill(selector, "");
-  await page.type(selector, digitsOnly(ome), { delay: 20 });
+  await page.type(selector, digitsOnly(ome), { delay: 10 });
   await page.evaluate((cssSelector) => {
     const element = document.querySelector(cssSelector);
     if (!element) {
@@ -928,14 +956,14 @@ async function cargarNumeroOME(page, settings, ome) {
     element.dispatchEvent(new Event("input", { bubbles: true }));
     element.dispatchEvent(new Event("change", { bubbles: true }));
   }, selector);
-  await page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => null);
-  await page.waitForTimeout(800);
+  await page.waitForLoadState("networkidle", { timeout: TIMEOUTS.networkIdle }).catch(() => null);
+  await page.waitForTimeout(PAUSES.afterOme);
   return true;
 }
 
-async function waitForDatosMedicosEnabled(page, settings, timeout = 2000) {
+async function waitForDatosMedicosEnabled(page, settings, timeout = TIMEOUTS.datosMedicosButton) {
   const button = page.locator("#boton_datos_medicos").first();
-  await button.waitFor({ state: "visible", timeout: 15000 });
+  await button.waitFor({ state: "visible", timeout: TIMEOUTS.selector });
   await button.scrollIntoViewIfNeeded();
   const startedAt = Date.now();
 
@@ -945,7 +973,7 @@ async function waitForDatosMedicosEnabled(page, settings, timeout = 2000) {
     }
 
     await refreshMedicalDataFields(page, settings).catch(() => null);
-    await sleep(250);
+    await sleep(PAUSES.poll);
   }
 
   return false;
@@ -958,9 +986,9 @@ async function agregarPractica(page, settings) {
     return false;
   }
 
-  await button.click({ timeout: 3000 });
-  await page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => null);
-  await page.waitForTimeout(1200);
+  await button.click({ timeout: TIMEOUTS.datosMedicosClick });
+  await page.waitForLoadState("networkidle", { timeout: TIMEOUTS.networkIdle }).catch(() => null);
+  await page.waitForTimeout(PAUSES.afterPracticeAdd);
   return true;
 }
 
@@ -971,7 +999,7 @@ async function agregarPracticaYEsperarDocumentacion(page, settings) {
     const clicked = await agregarPractica(page, settings);
     if (!clicked) {
       lastDiagnostic = await getMedicalDataDiagnostic(page, settings).catch(() => null);
-    } else if (await waitForUsableSelectOptions(page, settings.selectors.documentacionSelect, 6000)) {
+    } else if (await waitForUsableSelectOptions(page, settings.selectors.documentacionSelect)) {
       return;
     }
 
@@ -982,7 +1010,7 @@ async function agregarPracticaYEsperarDocumentacion(page, settings) {
         settings.selectors.practicaInput,
         settings.autocompleteSelectors,
         settings.fixed.practica,
-        1000
+        TIMEOUTS.autocompleteQuick
       );
       await refreshMedicalDataFields(page, settings);
     }
@@ -1006,7 +1034,7 @@ async function captureDebugScreenshot(page, settings, screenshotsDir, logger, la
 
 async function generarYVolver(page, settings, screenshotsDir, logger, capturePrefix) {
   const listUrlRegex = /op_panel_listado\.php/i;
-  await page.click(settings.selectors.generarBtn);
+  await page.click(settings.selectors.generarBtn, { timeout: TIMEOUTS.shortAction });
   await captureDebugScreenshot(
     page,
     settings,
@@ -1017,7 +1045,7 @@ async function generarYVolver(page, settings, screenshotsDir, logger, capturePre
   );
 
   try {
-    await page.waitForSelector("button.confirm", { timeout: 8000 });
+    await page.waitForSelector("button.confirm", { timeout: TIMEOUTS.confirmation });
     await captureDebugScreenshot(
       page,
       settings,
@@ -1026,7 +1054,7 @@ async function generarYVolver(page, settings, screenshotsDir, logger, capturePre
       "Confirmacion de orden visible",
       `${capturePrefix}-06-confirmacion`
     );
-    await page.click("button.confirm");
+    await page.click("button.confirm", { timeout: TIMEOUTS.shortAction });
   } catch (error) {
     if (!/Timeout/.test(String(error))) {
       throw error;
@@ -1034,7 +1062,7 @@ async function generarYVolver(page, settings, screenshotsDir, logger, capturePre
   }
 
   try {
-    await page.waitForURL(listUrlRegex, { timeout: 8000 });
+    await page.waitForURL(listUrlRegex, { timeout: TIMEOUTS.confirmation });
   } catch (error) {
     if (!/Timeout/.test(String(error))) {
       throw error;
@@ -1067,7 +1095,7 @@ async function login(page, settings, logger, screenshotsDir) {
 
     logger.info(`Iniciando sesión en PAMI${attempt > 1 ? ` (intento ${attempt})` : ""}...`);
     await page.goto(settings.loginUrl, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector(settings.selectors.usuarioInput, { timeout: 15000 });
+    await page.waitForSelector(settings.selectors.usuarioInput, { timeout: TIMEOUTS.selector });
     await captureDebugScreenshot(
       page,
       settings,
@@ -1080,8 +1108,8 @@ async function login(page, settings, logger, screenshotsDir) {
     await page.fill(settings.selectors.passwordInput, settings.credentials.password);
 
     await Promise.allSettled([
-      page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15000 }),
-      page.click(settings.selectors.loginBtn)
+      page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: TIMEOUTS.loginNavigation }),
+      page.click(settings.selectors.loginBtn, { timeout: TIMEOUTS.shortAction })
     ]);
 
     await page.goto(settings.formUrl, { waitUntil: "domcontentloaded" });
@@ -1375,7 +1403,8 @@ async function runPamiBot({ rawSettings, inputDir, screenshotsDir, videosDir, lo
         : undefined
     });
     page = await context.newPage();
-    page.setDefaultTimeout(20000);
+    page.setDefaultTimeout(TIMEOUTS.defaultAction);
+    page.setDefaultNavigationTimeout(TIMEOUTS.loginNavigation);
 
     const patientsRoot = resolvePatientsRoot(inputDir);
     logger.info(`Leyendo pacientes desde ${patientsRoot}`);
