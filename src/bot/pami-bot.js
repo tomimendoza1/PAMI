@@ -959,7 +959,8 @@ async function generarYVolver(page, settings, screenshotsDir, logger, capturePre
 }
 
 async function login(page, settings, logger, screenshotsDir) {
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
+  const maxLoginAttempts = 3;
+  for (let attempt = 1; attempt <= maxLoginAttempts; attempt += 1) {
     if (attempt > 1) {
       logger.warn("PAMI devolvio sesion expirada o sin permisos. Limpiando sesion y reintentando login...");
       await page.context().clearCookies().catch(() => null);
@@ -989,10 +990,10 @@ async function login(page, settings, logger, screenshotsDir) {
       await waitForPamiForm(page, settings, {
         screenshotsDir,
         logger,
-        screenshotName: attempt > 1 ? "01-error-formulario-intento-2" : "01-error-formulario"
+        screenshotName: attempt > 1 ? `01-error-formulario-intento-${attempt}` : "01-error-formulario"
       });
     } catch (error) {
-      if (attempt < 2 && error.code === "PAMI_SESSION_BLOCKED") {
+      if (attempt < maxLoginAttempts && error.code === "PAMI_SESSION_BLOCKED") {
         continue;
       }
       throw error;
