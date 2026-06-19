@@ -23,6 +23,7 @@ const TIMEOUTS = {
   fileChooser: 6000,
   networkIdle: 1500,
   confirmation: 2500,
+  generar: 30000,
   datosMedicosButton: 1000,
   datosMedicosClick: 1500,
   omeInput: 1500,
@@ -1211,6 +1212,24 @@ async function captureDebugScreenshot(page, settings, screenshotsDir, logger, la
   }
 }
 
+async function isPamiLoading(page) {
+  return page.evaluate(() => {
+    const text = String(document.body ? document.body.innerText || "" : "").replace(/\s+/g, " ");
+    return /Cargando\.?\s+Por favor espere/i.test(text);
+  }).catch(() => false);
+}
+
+async function waitForPamiLoadingToFinish(page, timeout = TIMEOUTS.generar) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeout) {
+    if (!(await isPamiLoading(page))) {
+      return true;
+    }
+    await sleep(250);
+  }
+  return false;
+}
+
 async function generarYVolver(page, settings, screenshotsDir, logger, capturePrefix) {
   const listUrlRegex = /op_panel_listado\.php/i;
   await page.click(settings.selectors.generarBtn, { timeout: TIMEOUTS.shortAction });
@@ -1223,8 +1242,12 @@ async function generarYVolver(page, settings, screenshotsDir, logger, capturePre
     `${capturePrefix}-05-generar`
   );
 
-  try {
-    await page.waitForSelector("button.confirm", { timeout: TIMEOUTS.confirmation });
+  const loadingFinished = await waitForPamiLoadingToFinish(page, TIMEOUTS.generar);
+  if (!loadingFinished) {
+    throw new Error("PAMI quedo cargando despues de presionar Generar; no se confirma la orden.");
+  }
+
+  if (await page.locator("button.confirm").first().isVisible({ timeout: TIMEOUTS.confirmation }).catch(() => false)) {
     await captureDebugScreenshot(
       page,
       settings,
@@ -1234,17 +1257,29 @@ async function generarYVolver(page, settings, screenshotsDir, logger, capturePre
       `${capturePrefix}-06-confirmacion`
     );
     await page.click("button.confirm", { timeout: TIMEOUTS.shortAction });
-  } catch (error) {
-    if (!/Timeout/.test(String(error))) {
-      throw error;
+    const confirmedFinished = await waitForPamiLoadingToFinish(page, TIMEOUTS.generar);
+    if (!confirmedFinished) {
+      throw new Error("PAMI quedo cargando despues de confirmar la orden; no se puede continuar.");
     }
   }
 
-  try {
-    await page.waitForURL(listUrlRegex, { timeout: TIMEOUTS.confirmation });
-  } catch (error) {
-    if (!/Timeout/.test(String(error))) {
-      throw error;
+  const completed = await Promise.race([
+    page.waitForURL(listUrlRegex, { timeout: TIMEOUTS.generar }).then(() => true).catch(() => false),
+    page
+      .waitForSelector(settings.selectors.generarBtn, { state: "detached", timeout: TIMEOUTS.generar })
+      .then(() => true)
+      .catch(() => false)
+  ]);
+
+  if (!completed && (await isPamiLoading(page))) {
+    throw new Error("PAMI sigue cargando despues de Generar; no se marca la orden como generada.");
+  }
+
+  if (!completed) {
+    const bodyText = await page.locator("body").innerText({ timeout: TIMEOUTS.bodyText }).catch(() => "");
+    const compactText = bodyText.replace(/\s+/g, " ").trim().slice(0, 250);
+    if (!/orden|solicitud|generad|confirm/i.test(compactText)) {
+      throw new Error(`No se pudo confirmar que PAMI haya generado la orden. Texto visible: ${compactText || "sin texto"}`);
     }
   }
 
