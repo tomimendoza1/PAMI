@@ -19,7 +19,8 @@ const TIMEOUTS = {
   practicaAutocomplete: 6000,
   documentacionOptions: 8000,
   documentacionReady: 2500,
-  fileChooser: 3000,
+  documentacionButton: 8000,
+  fileChooser: 6000,
   networkIdle: 1500,
   confirmation: 2500,
   datosMedicosButton: 1000,
@@ -988,7 +989,13 @@ async function subirArchivoDocumentacion(page, filePath) {
     await input.setInputFiles(filePath);
     const loaded = await page.evaluate(() => {
       const node = document.querySelector('input[type="file"]');
-      return Boolean(node && node.files && node.files.length > 0);
+      if (!node || !node.files || !node.files.length) {
+        return false;
+      }
+      node.dispatchEvent(new Event("input", { bubbles: true }));
+      node.dispatchEvent(new Event("change", { bubbles: true }));
+      node.dispatchEvent(new Event("blur", { bubbles: true }));
+      return true;
     });
 
     if (loaded) {
@@ -1003,6 +1010,71 @@ async function subirArchivoDocumentacion(page, filePath) {
   await chooser.setFiles(filePath);
 }
 
+async function refreshDocumentacionFields(page, settings) {
+  await page.evaluate((selectors) => {
+    const dispatch = (element) => {
+      if (!element) {
+        return;
+      }
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+      element.dispatchEvent(new Event("change", { bubbles: true }));
+      element.dispatchEvent(new Event("blur", { bubbles: true }));
+    };
+
+    dispatch(document.querySelector(selectors.documentacionSelect));
+    dispatch(document.querySelector('input[type="file"]'));
+  }, settings.selectors);
+}
+
+async function getDocumentacionDiagnostic(page, settings) {
+  return page.evaluate((selectors) => {
+    const select = document.querySelector(selectors.documentacionSelect);
+    const option = select && select.options ? select.options[select.selectedIndex] : null;
+    const input = document.querySelector('input[type="file"]');
+    const button = document.querySelector(selectors.documentacionAgregarBtn);
+
+    return {
+      tipo: option ? String(option.textContent || "").trim() : "",
+      archivo: input && input.files && input.files.length ? input.files[0].name : "",
+      botonAgregar: button
+        ? {
+            disabled: Boolean(button.disabled),
+            text: String(button.textContent || "").replace(/\s+/g, " ").trim()
+          }
+        : null
+    };
+  }, settings.selectors);
+}
+
+function formatDocumentacionDiagnostic(diagnostic) {
+  if (!diagnostic) {
+    return "sin diagnostico disponible";
+  }
+
+  const button = diagnostic.botonAgregar
+    ? `boton="${diagnostic.botonAgregar.text || "sin texto"}", disabled=${diagnostic.botonAgregar.disabled}`
+    : "boton no encontrado";
+
+  return [`tipo="${diagnostic.tipo || ""}"`, `archivo="${diagnostic.archivo || ""}"`, button].join(" | ");
+}
+
+async function waitForDocumentacionAgregarEnabled(page, settings, timeout = TIMEOUTS.documentacionButton) {
+  const button = page.locator(settings.selectors.documentacionAgregarBtn).first();
+  await button.waitFor({ state: "visible", timeout: TIMEOUTS.selector });
+
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeout) {
+    if (await button.isEnabled().catch(() => false)) {
+      return true;
+    }
+
+    await refreshDocumentacionFields(page, settings).catch(() => null);
+    await sleep(PAUSES.short);
+  }
+
+  return false;
+}
+
 async function cargarDocumentacionPDF(page, patient, patientFolder, settings) {
   const filePath = findPacientePdf(patient.afiliado, patientFolder);
   if (!filePath) {
@@ -1011,6 +1083,12 @@ async function cargarDocumentacionPDF(page, patient, patientFolder, settings) {
 
   await selectDocumentacionOption(page, settings.selectors.documentacionSelect, settings.docsTypeText);
   await subirArchivoDocumentacion(page, filePath);
+  await refreshDocumentacionFields(page, settings);
+  if (!(await waitForDocumentacionAgregarEnabled(page, settings))) {
+    const details = formatDocumentacionDiagnostic(await getDocumentacionDiagnostic(page, settings).catch(() => null));
+    throw new Error(`No se pudo agregar la documentacion. Estado final: ${details}`);
+  }
+
   await page.click(settings.selectors.documentacionAgregarBtn, { timeout: TIMEOUTS.shortAction });
   await page.waitForTimeout(PAUSES.afterFileAdd);
 }
