@@ -6,7 +6,7 @@ const { defaultSettings } = require("../default-config");
 
 const TIMEOUTS = {
   defaultAction: 6000,
-  shortAction: 2000,
+  shortAction: 4000,
   selector: 4000,
   loginNavigation: 30000,
   loginPageLoad: 30000,
@@ -14,20 +14,20 @@ const TIMEOUTS = {
   formReady: 20000,
   afiliadoInput: 10000,
   afiliadoAutocomplete: 6000,
-  autocomplete: 1500,
+  autocomplete: 3500,
   autocompleteQuick: 900,
   practicaAutocomplete: 6000,
   documentacionOptions: 8000,
-  documentacionReady: 2500,
+  documentacionReady: 4000,
   documentacionButton: 8000,
   fileChooser: 6000,
-  networkIdle: 1500,
+  networkIdle: 2500,
   confirmation: 2500,
   generar: 30000,
-  datosMedicosButton: 1000,
-  datosMedicosClick: 1500,
-  omeInput: 1500,
-  bodyText: 500
+  datosMedicosButton: 2000,
+  datosMedicosClick: 2500,
+  omeInput: 2500,
+  bodyText: 1000
 };
 
 const PAUSES = {
