@@ -714,16 +714,34 @@ async function getPamiAccessBlocker(page) {
   return "";
 }
 
-async function throwPamiFormError(page) {
+async function throwPamiFormError(page, options = {}) {
+  const screenshotName = sanitizeSlug(options.screenshotName || "formulario-pami-no-disponible") || `formulario-${Date.now()}`;
+  const screenshotPath = options.screenshotsDir
+    ? await saveErrorScreenshot(page, options.screenshotsDir, `${screenshotName}.png`)
+    : null;
+  if (screenshotPath && options.logger) {
+    options.logger.error(`Captura del error de formulario PAMI: ${screenshotPath}`);
+  }
+
   const diagnostic = await getPageDiagnostic(page);
-  const error = new Error(`No se encontro el formulario de carga de PAMI despues de iniciar sesion. ${diagnostic}`);
+  const details = screenshotPath ? `${diagnostic} | Captura: ${screenshotPath}` : diagnostic;
+  const error = new Error(`No se encontro el formulario de carga de PAMI despues de iniciar sesion. ${details}`);
   if (await getPamiAccessBlocker(page)) {
     error.code = "PAMI_SESSION_BLOCKED";
   }
   throw error;
 }
 
-async function waitForPamiForm(page, settings, timeout = 20000) {
+async function waitForPamiForm(page, settings, options = {}) {
+  const timeout = typeof options === "number" ? options : options.timeout || 20000;
+  const errorOptions =
+    typeof options === "number"
+      ? {}
+      : {
+          screenshotsDir: options.screenshotsDir,
+          logger: options.logger,
+          screenshotName: options.screenshotName
+        };
   const selectors = [
     settings.selectors.postLoginCheck,
     settings.selectors.afiliadoInput,
@@ -739,12 +757,12 @@ async function waitForPamiForm(page, settings, timeout = 20000) {
       }
     }
     if (await getPamiAccessBlocker(page)) {
-      await throwPamiFormError(page);
+      await throwPamiFormError(page, errorOptions);
     }
     await sleep(200);
   }
 
-  await throwPamiFormError(page);
+  await throwPamiFormError(page, errorOptions);
 }
 
 async function asegurarNroBeneficio(page) {
@@ -925,7 +943,11 @@ async function generarYVolver(page, settings, screenshotsDir, logger, capturePre
   }
 
   await page.goto(settings.formUrl, { waitUntil: "domcontentloaded" });
-  await waitForPamiForm(page, settings);
+  await waitForPamiForm(page, settings, {
+    screenshotsDir,
+    logger,
+    screenshotName: `${capturePrefix}-error-formulario-siguiente`
+  });
   await captureDebugScreenshot(
     page,
     settings,
@@ -964,7 +986,11 @@ async function login(page, settings, logger, screenshotsDir) {
 
     await page.goto(settings.formUrl, { waitUntil: "domcontentloaded" });
     try {
-      await waitForPamiForm(page, settings);
+      await waitForPamiForm(page, settings, {
+        screenshotsDir,
+        logger,
+        screenshotName: attempt > 1 ? "01-error-formulario-intento-2" : "01-error-formulario"
+      });
     } catch (error) {
       if (attempt < 2 && error.code === "PAMI_SESSION_BLOCKED") {
         continue;
