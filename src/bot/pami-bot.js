@@ -9,6 +9,7 @@ const TIMEOUTS = {
   shortAction: 2000,
   selector: 4000,
   loginNavigation: 6000,
+  pageLoad: 12000,
   formReady: 6000,
   autocomplete: 1500,
   autocompleteQuick: 900,
@@ -1069,7 +1070,7 @@ async function generarYVolver(page, settings, screenshotsDir, logger, capturePre
     }
   }
 
-  await page.goto(settings.formUrl, { waitUntil: "domcontentloaded" });
+  await page.goto(settings.formUrl, { waitUntil: "domcontentloaded", timeout: TIMEOUTS.pageLoad });
   await waitForPamiForm(page, settings, {
     screenshotsDir,
     logger,
@@ -1094,7 +1095,7 @@ async function login(page, settings, logger, screenshotsDir) {
     }
 
     logger.info(`Iniciando sesión en PAMI${attempt > 1 ? ` (intento ${attempt})` : ""}...`);
-    await page.goto(settings.loginUrl, { waitUntil: "domcontentloaded" });
+    await page.goto(settings.loginUrl, { waitUntil: "domcontentloaded", timeout: TIMEOUTS.pageLoad });
     await page.waitForSelector(settings.selectors.usuarioInput, { timeout: TIMEOUTS.selector });
     await captureDebugScreenshot(
       page,
@@ -1112,7 +1113,7 @@ async function login(page, settings, logger, screenshotsDir) {
       page.click(settings.selectors.loginBtn, { timeout: TIMEOUTS.shortAction })
     ]);
 
-    await page.goto(settings.formUrl, { waitUntil: "domcontentloaded" });
+    await page.goto(settings.formUrl, { waitUntil: "domcontentloaded", timeout: TIMEOUTS.pageLoad });
     try {
       await waitForPamiForm(page, settings, {
         screenshotsDir,
@@ -1453,7 +1454,7 @@ async function runPamiBot({ rawSettings, inputDir, screenshotsDir, videosDir, lo
 
         throwIfCancelled(signal);
         try {
-          await page.goto(settings.formUrl, { waitUntil: "domcontentloaded" });
+          await page.goto(settings.formUrl, { waitUntil: "domcontentloaded", timeout: TIMEOUTS.pageLoad });
           throwIfCancelled(signal);
           await procesarPaciente(
             page,
