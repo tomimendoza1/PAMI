@@ -315,7 +315,8 @@ async function readDocx(file) {
     ome: digitsOnly(
       pick(text, /(?:^|\b)OME\b\s*:\s*([0-9][0-9.\s-]+)/im) ||
         pick(text, /(?:^|\b)Nro\.?\s*OME\b\s*:\s*([0-9][0-9.\s-]+)/im)
-    )
+    ),
+    cantidadAudifonos: parseCantidadAudifonos(text)
   };
 }
 
@@ -487,7 +488,7 @@ async function buscarYSeleccionarAfiliado(page, settings, patient, logger) {
       await waitForEditableInput(page, settings.selectors.afiliadoInput, TIMEOUTS.afiliadoInput);
       await typeLikeHuman(page, settings.selectors.afiliadoInput, candidate);
       await pressEnter(page, settings.selectors.afiliadoInput);
-      await clickExactAutocompleteSuggestion(page, settings.autocompleteSelectors, candidate, TIMEOUTS.afiliadoAutocomplete);
+      await clickAutocompleteSuggestion(page, settings.autocompleteSelectors, candidate, TIMEOUTS.afiliadoAutocomplete);
 
       if (candidate !== patient.afiliado) {
         logger.warn(`Afiliado ${patient.afiliado} no encontrado; se selecciono ${candidate} quitando los ultimos dos digitos.`);
@@ -529,7 +530,7 @@ async function selectRequiredAutocomplete(page, selector, selectors, text, timeo
   await dismissAutocompleteMenus(page);
   await page.locator(selector).first().focus();
   await pressEnter(page, selector);
-  await clickExactAutocompleteSuggestion(page, selectors, text, timeout);
+  await clickAutocompleteSuggestion(page, selectors, text, timeout);
   await page.locator(selector).first().blur().catch(() => null);
   await closeAutocompleteMenus(page);
 }
@@ -974,7 +975,6 @@ async function waitForPamiForm(page, settings, options = {}) {
 
 async function abrirFormularioNuevo(page, settings, options = {}) {
   await closeAutocompleteMenus(page);
-  await page.goto("about:blank", { waitUntil: "domcontentloaded", timeout: TIMEOUTS.shortAction }).catch(() => null);
   await page.goto(settings.formUrl, { waitUntil: "domcontentloaded", timeout: TIMEOUTS.pageLoad });
   await waitForPamiForm(page, settings, options);
   await closeAutocompleteMenus(page);
@@ -1185,44 +1185,18 @@ async function waitForDatosMedicosEnabled(page, settings, timeout = TIMEOUTS.dat
 }
 
 async function agregarPractica(page, settings) {
-  const button = page.locator("#boton_datos_medicos").first();
-  const enabled = await waitForDatosMedicosEnabled(page, settings);
-  if (!enabled) {
-    return false;
-  }
-
-  await button.click({ timeout: TIMEOUTS.datosMedicosClick });
-  await page.waitForLoadState("networkidle", { timeout: TIMEOUTS.networkIdle }).catch(() => null);
-  await page.waitForTimeout(PAUSES.afterPracticeAdd);
+  await page.waitForSelector("#boton_datos_medicos", { timeout: TIMEOUTS.selector });
+  await page.click("#boton_datos_medicos", { timeout: TIMEOUTS.datosMedicosClick });
+  await page.waitForTimeout(800);
   return true;
 }
 
 async function agregarPracticaYEsperarDocumentacion(page, settings) {
-  let lastDiagnostic = null;
-
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    const clicked = await agregarPractica(page, settings);
-    if (!clicked) {
-      lastDiagnostic = await getMedicalDataDiagnostic(page, settings).catch(() => null);
-    } else if (await waitForUsableSelectOptions(page, settings.selectors.documentacionSelect)) {
-      return;
-    }
-
-    if (attempt < 2) {
-      await typeLikeHuman(page, settings.selectors.practicaInput, settings.fixed.practica);
-      await selectRequiredAutocomplete(
-        page,
-        settings.selectors.practicaInput,
-        settings.autocompleteSelectors,
-        settings.fixed.practica,
-        TIMEOUTS.practicaAutocomplete
-      );
-      await refreshMedicalDataFields(page, settings);
-    }
+  await agregarPractica(page, settings);
+  if (!(await waitForUsableSelectOptions(page, settings.selectors.documentacionSelect))) {
+    const details = formatMedicalDataDiagnostic(await getMedicalDataDiagnostic(page, settings).catch(() => null));
+    throw new Error(`No se habilito documentacion despues de presionar Agregar en Datos Medicos. Estado final: ${details}`);
   }
-
-  const details = formatMedicalDataDiagnostic(lastDiagnostic || (await getMedicalDataDiagnostic(page, settings).catch(() => null)));
-  throw new Error(`No se pudo agregar la practica en Datos Medicos. Estado final: ${details}`);
 }
 
 async function captureDebugScreenshot(page, settings, screenshotsDir, logger, label, fileName) {
@@ -1390,12 +1364,13 @@ async function procesarPaciente(page, patient, patientFolder, settings, screensh
   );
   await agregarPracticaYEsperarDocumentacion(page, settings);
 
+  throwIfCancelled(signal);
+  await cargarDocumentacionPDF(page, patient, patientFolder, settings);
+
   if (patient.ome) {
     await cargarNumeroOME(page, settings, patient.ome);
   }
 
-  throwIfCancelled(signal);
-  await cargarDocumentacionPDF(page, patient, patientFolder, settings);
   await captureDebugScreenshot(
     page,
     settings,
@@ -1515,7 +1490,7 @@ async function inspectPatientsInput(inputDir) {
         const hasAfiliado = Boolean(patient.afiliado);
         const pdfMatch = hasAfiliado ? findPacientePdfMatch(patient.afiliado, patientFolder) : null;
         const hasPdf = Boolean(pdfMatch && pdfMatch.path);
-        const estimatedOrders = 1;
+        const estimatedOrders = patient.cantidadAudifonos || 1;
         const warnings = [];
 
         if (!hasAfiliado) {
@@ -1651,37 +1626,41 @@ async function runPamiBot({ rawSettings, inputDir, screenshotsDir, videosDir, lo
           continue;
         }
 
-        logger.info(`Afiliado ${patient.afiliado}: se realizara una carga por este DOCX.`);
+        const cargas = patient.cantidadAudifonos || 1;
+        logger.info(`Afiliado ${patient.afiliado}: se realizaran ${cargas} carga(s) por este DOCX.`);
 
-        throwIfCancelled(signal);
-        try {
-          await abrirFormularioNuevo(page, settings, {
-            screenshotsDir,
-            logger,
-            screenshotName: `${patient.afiliado}-error-formulario-inicial`
-          });
+        for (let carga = 1; carga <= cargas; carga += 1) {
           throwIfCancelled(signal);
-          await procesarPaciente(
-            page,
-            patient,
-            patientFolder,
-            settings,
-            screenshotsDir,
-            logger,
-            patient.afiliado,
-            signal
-          );
-          summary.generated += 1;
-          logger.info(`Orden generada correctamente para ${patient.afiliado}.`);
-        } catch (error) {
-          summary.failed += 1;
-          const safeName = sanitizeSlug(patient.afiliado) || `error-${Date.now()}`;
-          const screenshotPath = await saveErrorScreenshot(page, screenshotsDir, `${safeName}.png`);
-          const details = screenshotPath
-            ? `${error.message}. Captura: ${screenshotPath}`
-            : error.message;
-          summary.errors.push(`Fallo con afiliado ${patient.afiliado}: ${details}`);
-          logger.error(`Fallo con afiliado ${patient.afiliado}: ${details}`);
+          try {
+            logger.info(`Carga ${carga}/${cargas} para afiliado ${patient.afiliado}.`);
+            await abrirFormularioNuevo(page, settings, {
+              screenshotsDir,
+              logger,
+              screenshotName: `${patient.afiliado}-error-formulario-inicial-${carga}`
+            });
+            throwIfCancelled(signal);
+            await procesarPaciente(
+              page,
+              patient,
+              patientFolder,
+              settings,
+              screenshotsDir,
+              logger,
+              cargas > 1 ? `${patient.afiliado}-${carga}` : patient.afiliado,
+              signal
+            );
+            summary.generated += 1;
+            logger.info(`Orden generada correctamente para ${patient.afiliado} (${carga}/${cargas}).`);
+          } catch (error) {
+            summary.failed += 1;
+            const safeName = sanitizeSlug(cargas > 1 ? `${patient.afiliado}-${carga}` : patient.afiliado) || `error-${Date.now()}`;
+            const screenshotPath = await saveErrorScreenshot(page, screenshotsDir, `${safeName}.png`);
+            const details = screenshotPath
+              ? `${error.message}. Captura: ${screenshotPath}`
+              : error.message;
+            summary.errors.push(`Fallo con afiliado ${patient.afiliado}: ${details}`);
+            logger.error(`Fallo con afiliado ${patient.afiliado}: ${details}`);
+          }
         }
       }
     }
