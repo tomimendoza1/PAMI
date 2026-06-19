@@ -228,7 +228,7 @@ function renderInspectionCard(entry) {
   const details = [
     `Afiliado: ${entry.afiliado || "No detectado"}`,
     `OME: ${entry.ome || "Sin dato"}`,
-    `Audifonos: ${entry.cantidadAudifonos || 0}`,
+    `Ordenes a cargar: ${entry.estimatedOrders || 0}`,
     `PDF: ${entry.hasPdf ? entry.pdfName : "No encontrado"}`,
     `Tipo de match PDF: ${entry.pdfMatchType || "sin match"}`
   ];

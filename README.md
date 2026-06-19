@@ -13,7 +13,7 @@ Aplicacion web para ejecutar el bot de ordenes de prestaciones de PAMI desde una
 - Busca el PDF correspondiente dentro de la carpeta del paciente.
 - Permite validar la carpeta antes de ejecutar el bot para detectar DOCX incompletos o PDFs faltantes.
 - Completa el formulario de PAMI con los valores fijos y variables.
-- Genera una o dos cargas segun la cantidad de audifonos detectada.
+- Genera una carga por cada `.docx` procesado.
 - Muestra logs en vivo y guarda capturas si algo falla.
 
 ## Estructura esperada

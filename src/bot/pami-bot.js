@@ -261,8 +261,7 @@ async function readDocx(file) {
     ome: digitsOnly(
       pick(text, /(?:^|\b)OME\b\s*:\s*([0-9][0-9.\s-]+)/im) ||
         pick(text, /(?:^|\b)Nro\.?\s*OME\b\s*:\s*([0-9][0-9.\s-]+)/im)
-    ),
-    cantidadAudifonos: parseCantidadAudifonos(text)
+    )
   };
 }
 
@@ -307,6 +306,58 @@ async function clickAutocompleteSuggestion(page, selectors, text, timeout = 1200
   }
 
   await items[0].click();
+}
+
+async function clickExactAutocompleteSuggestion(page, selectors, text, timeout = 12000) {
+  const visibleSelector = await waitVisibleAny(page, selectors, timeout);
+  const items = await page.$$(visibleSelector);
+  for (const item of items) {
+    const itemText = ((await item.innerText()) || "").trim();
+    const itemDigits = digitsOnly(itemText);
+    if (itemText.includes(text) || itemDigits.includes(text)) {
+      await item.click();
+      return;
+    }
+  }
+
+  throw new Error(`No se encontro el afiliado ${text} en el autocomplete.`);
+}
+
+function buildAfiliadoSearchCandidates(afiliado) {
+  const base = String(afiliado || "").trim();
+  if (base.length <= 2) {
+    return [base].filter(Boolean);
+  }
+
+  const withoutLastTwoDigits = base.slice(0, -2);
+  return [...new Set([base, withoutLastTwoDigits].filter(Boolean))];
+}
+
+async function buscarYSeleccionarAfiliado(page, settings, patient, logger) {
+  const candidates = buildAfiliadoSearchCandidates(patient.afiliado);
+  let lastError = null;
+
+  for (let index = 0; index < candidates.length; index += 1) {
+    const candidate = candidates[index];
+    try {
+      await typeLikeHuman(page, settings.selectors.afiliadoInput, candidate);
+      await pressEnter(page, settings.selectors.afiliadoInput);
+      await clickExactAutocompleteSuggestion(page, settings.autocompleteSelectors, candidate);
+
+      if (candidate !== patient.afiliado) {
+        logger.warn(`Afiliado ${patient.afiliado} no encontrado; se selecciono ${candidate} quitando los ultimos dos digitos.`);
+      }
+
+      return candidate;
+    } catch (error) {
+      lastError = error;
+      if (index < candidates.length - 1) {
+        logger.warn(`No se encontro afiliado ${candidate}. Reintentando sin los ultimos dos digitos.`);
+      }
+    }
+  }
+
+  throw lastError || new Error(`No se pudo seleccionar afiliado ${patient.afiliado}.`);
 }
 
 async function acceptAutocompleteOrKeepTypedValue(page, selector, selectors, text) {
@@ -926,15 +977,13 @@ async function procesarPaciente(page, patient, patientFolder, settings, screensh
     `${capturePrefix}-02-formulario-afiliado`
   );
   throwIfCancelled(signal);
-  await typeLikeHuman(page, settings.selectors.afiliadoInput, patient.afiliado);
-  await pressEnter(page, settings.selectors.afiliadoInput);
-  await clickAutocompleteSuggestion(page, settings.autocompleteSelectors, patient.afiliado);
+  const selectedAfiliado = await buscarYSeleccionarAfiliado(page, settings, patient, logger);
   await captureDebugScreenshot(
     page,
     settings,
     screenshotsDir,
     logger,
-    `Afiliado ${patient.afiliado} seleccionado`,
+    `Afiliado ${selectedAfiliado} seleccionado`,
     `${capturePrefix}-03-afiliado-seleccionado`
   );
 
@@ -1075,7 +1124,7 @@ async function inspectPatientsInput(inputDir) {
         const hasAfiliado = Boolean(patient.afiliado);
         const pdfMatch = hasAfiliado ? findPacientePdfMatch(patient.afiliado, patientFolder) : null;
         const hasPdf = Boolean(pdfMatch && pdfMatch.path);
-        const repetitions = patient.cantidadAudifonos || 1;
+        const estimatedOrders = 1;
         const warnings = [];
 
         if (!hasAfiliado) {
@@ -1095,7 +1144,7 @@ async function inspectPatientsInput(inputDir) {
 
         if (hasAfiliado && hasPdf) {
           inspection.validPatients += 1;
-          inspection.estimatedOrders += repetitions;
+          inspection.estimatedOrders += estimatedOrders;
         }
 
         inspection.patients.push({
@@ -1105,7 +1154,7 @@ async function inspectPatientsInput(inputDir) {
           telefonoArea: patient.telefonoArea,
           telefono: patient.telefono,
           ome: patient.ome,
-          cantidadAudifonos: repetitions,
+          estimatedOrders,
           hasPdf,
           pdfName: pdfMatch ? path.basename(pdfMatch.path) : "",
           pdfMatchType: pdfMatch ? pdfMatch.matchType : "",
@@ -1122,7 +1171,6 @@ async function inspectPatientsInput(inputDir) {
           telefonoArea: "",
           telefono: "",
           ome: "",
-          cantidadAudifonos: 0,
           hasPdf: false,
           pdfName: "",
           status: "error",
@@ -1201,37 +1249,33 @@ async function runPamiBot({ rawSettings, inputDir, screenshotsDir, log, signal }
           continue;
         }
 
-        const repetitions = patient.cantidadAudifonos || 1;
-        logger.info(`Afiliado ${patient.afiliado}: ${repetitions} carga(s) detectada(s).`);
+        logger.info(`Afiliado ${patient.afiliado}: se realizara una carga por este DOCX.`);
 
-        for (let index = 1; index <= repetitions; index += 1) {
+        throwIfCancelled(signal);
+        try {
+          await page.goto(settings.formUrl, { waitUntil: "domcontentloaded" });
           throwIfCancelled(signal);
-          try {
-            logger.info(`Carga ${index}/${repetitions} para afiliado ${patient.afiliado}.`);
-            await page.goto(settings.formUrl, { waitUntil: "domcontentloaded" });
-            throwIfCancelled(signal);
-            await procesarPaciente(
-              page,
-              patient,
-              patientFolder,
-              settings,
-              screenshotsDir,
-              logger,
-              `${patient.afiliado}-${index}`,
-              signal
-            );
-            summary.generated += 1;
-            logger.info(`Orden generada correctamente para ${patient.afiliado}.`);
-          } catch (error) {
-            summary.failed += 1;
-            const safeName = sanitizeSlug(`${patient.afiliado}-${index}`) || `error-${Date.now()}`;
-            const screenshotPath = await saveErrorScreenshot(page, screenshotsDir, `${safeName}.png`);
-            const details = screenshotPath
-              ? `${error.message}. Captura: ${screenshotPath}`
-              : error.message;
-            summary.errors.push(`Fallo con afiliado ${patient.afiliado}: ${details}`);
-            logger.error(`Fallo con afiliado ${patient.afiliado}: ${details}`);
-          }
+          await procesarPaciente(
+            page,
+            patient,
+            patientFolder,
+            settings,
+            screenshotsDir,
+            logger,
+            patient.afiliado,
+            signal
+          );
+          summary.generated += 1;
+          logger.info(`Orden generada correctamente para ${patient.afiliado}.`);
+        } catch (error) {
+          summary.failed += 1;
+          const safeName = sanitizeSlug(patient.afiliado) || `error-${Date.now()}`;
+          const screenshotPath = await saveErrorScreenshot(page, screenshotsDir, `${safeName}.png`);
+          const details = screenshotPath
+            ? `${error.message}. Captura: ${screenshotPath}`
+            : error.message;
+          summary.errors.push(`Fallo con afiliado ${patient.afiliado}: ${details}`);
+          logger.error(`Fallo con afiliado ${patient.afiliado}: ${details}`);
         }
       }
     }
