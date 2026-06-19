@@ -319,14 +319,32 @@ async function readDocx(file) {
   };
 }
 
-async function waitVisibleAny(page, selectors, timeout = TIMEOUTS.autocomplete) {
+async function getVisibleAutocompleteItems(page, selectors) {
+  const handles = [];
+  for (const selector of selectors) {
+    const items = await page.$$(selector);
+    for (const item of items) {
+      const visible = await item
+        .evaluate((element) => {
+          const rect = element.getBoundingClientRect();
+          const style = window.getComputedStyle(element);
+          return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+        })
+        .catch(() => false);
+      if (visible) {
+        handles.push(item);
+      }
+    }
+  }
+  return handles;
+}
+
+async function waitVisibleAutocompleteItems(page, selectors, timeout = TIMEOUTS.autocomplete) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeout) {
-    for (const selector of selectors) {
-      const element = await page.$(selector);
-      if (element && (await element.boundingBox())) {
-        return selector;
-      }
+    const items = await getVisibleAutocompleteItems(page, selectors);
+    if (items.length) {
+      return items;
     }
     await sleep(PAUSES.poll);
   }
@@ -341,12 +359,11 @@ async function typeLikeHuman(page, selector, value) {
 
 async function closeAutocompleteMenus(page) {
   await page.keyboard.press("Escape").catch(() => null);
-  await page.evaluate(() => {
-    for (const element of document.querySelectorAll(".ui-autocomplete, .ui-menu")) {
-      element.style.display = "none";
-      element.setAttribute("aria-hidden", "true");
-    }
-  }).catch(() => null);
+  await page.mouse.click(1, 1).catch(() => null);
+}
+
+async function dismissAutocompleteMenus(page) {
+  await page.keyboard.press("Escape").catch(() => null);
 }
 
 async function waitForEditableInput(page, selector, timeout = TIMEOUTS.selector) {
@@ -408,8 +425,7 @@ async function pressEnter(page, selector) {
 }
 
 async function clickAutocompleteSuggestion(page, selectors, text, timeout = TIMEOUTS.autocomplete) {
-  const visibleSelector = await waitVisibleAny(page, selectors, timeout);
-  const items = await page.$$(visibleSelector);
+  const items = await waitVisibleAutocompleteItems(page, selectors, timeout);
   for (const item of items) {
     const itemText = ((await item.innerText()) || "").trim();
     if (!text || itemText.includes(text)) {
@@ -434,8 +450,7 @@ async function clickAutocompleteSuggestion(page, selectors, text, timeout = TIME
 }
 
 async function clickExactAutocompleteSuggestion(page, selectors, text, timeout = TIMEOUTS.autocomplete) {
-  const visibleSelector = await waitVisibleAny(page, selectors, timeout);
-  const items = await page.$$(visibleSelector);
+  const items = await waitVisibleAutocompleteItems(page, selectors, timeout);
   for (const item of items) {
     const itemText = ((await item.innerText()) || "").trim();
     const itemDigits = digitsOnly(itemText);
@@ -491,7 +506,7 @@ async function buscarYSeleccionarAfiliado(page, settings, patient, logger) {
 }
 
 async function acceptAutocompleteOrKeepTypedValue(page, selector, selectors, text, timeout = TIMEOUTS.autocompleteQuick) {
-  await closeAutocompleteMenus(page);
+  await dismissAutocompleteMenus(page);
   await pressEnter(page, selector);
 
   try {
@@ -511,7 +526,7 @@ async function acceptAutocompleteOrKeepTypedValue(page, selector, selectors, tex
 }
 
 async function selectRequiredAutocomplete(page, selector, selectors, text, timeout) {
-  await closeAutocompleteMenus(page);
+  await dismissAutocompleteMenus(page);
   await page.locator(selector).first().focus();
   await pressEnter(page, selector);
   await clickExactAutocompleteSuggestion(page, selectors, text, timeout);
