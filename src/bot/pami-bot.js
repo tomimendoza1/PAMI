@@ -8,9 +8,12 @@ const TIMEOUTS = {
   defaultAction: 6000,
   shortAction: 2000,
   selector: 4000,
-  loginNavigation: 6000,
+  loginNavigation: 30000,
+  loginPageLoad: 30000,
   pageLoad: 20000,
-  formReady: 6000,
+  formReady: 20000,
+  afiliadoInput: 10000,
+  afiliadoAutocomplete: 6000,
   autocomplete: 1500,
   autocompleteQuick: 900,
   documentacionOptions: 8000,
@@ -333,6 +336,28 @@ async function typeLikeHuman(page, selector, value) {
   await page.type(selector, String(value), { delay: 10 });
 }
 
+async function waitForEditableInput(page, selector, timeout = TIMEOUTS.selector) {
+  const input = page.locator(selector).first();
+  await input.waitFor({ state: "visible", timeout });
+
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeout) {
+    const ready = await input
+      .evaluate((element) => {
+        return !element.disabled && !element.readOnly && element.offsetParent !== null;
+      })
+      .catch(() => false);
+
+    if (ready) {
+      return;
+    }
+
+    await sleep(PAUSES.short);
+  }
+
+  throw new Error(`El campo ${selector} no quedo listo para escribir.`);
+}
+
 async function pressEnter(page, selector) {
   await page.focus(selector);
   await page.keyboard.press("Enter");
@@ -388,9 +413,10 @@ async function buscarYSeleccionarAfiliado(page, settings, patient, logger) {
   for (let index = 0; index < candidates.length; index += 1) {
     const candidate = candidates[index];
     try {
+      await waitForEditableInput(page, settings.selectors.afiliadoInput, TIMEOUTS.afiliadoInput);
       await typeLikeHuman(page, settings.selectors.afiliadoInput, candidate);
       await pressEnter(page, settings.selectors.afiliadoInput);
-      await clickExactAutocompleteSuggestion(page, settings.autocompleteSelectors, candidate);
+      await clickExactAutocompleteSuggestion(page, settings.autocompleteSelectors, candidate, TIMEOUTS.afiliadoAutocomplete);
 
       if (candidate !== patient.afiliado) {
         logger.warn(`Afiliado ${patient.afiliado} no encontrado; se selecciono ${candidate} quitando los ultimos dos digitos.`);
@@ -1087,7 +1113,7 @@ async function generarYVolver(page, settings, screenshotsDir, logger, capturePre
 }
 
 async function login(page, settings, logger, screenshotsDir) {
-  const maxLoginAttempts = 3;
+  const maxLoginAttempts = 1;
   for (let attempt = 1; attempt <= maxLoginAttempts; attempt += 1) {
     if (attempt > 1) {
       logger.warn("PAMI devolvio sesion expirada o sin permisos. Limpiando sesion y reintentando login...");
@@ -1095,7 +1121,7 @@ async function login(page, settings, logger, screenshotsDir) {
     }
 
     logger.info(`Iniciando sesión en PAMI${attempt > 1 ? ` (intento ${attempt})` : ""}...`);
-    await page.goto(settings.loginUrl, { waitUntil: "domcontentloaded", timeout: TIMEOUTS.pageLoad });
+    await page.goto(settings.loginUrl, { waitUntil: "domcontentloaded", timeout: TIMEOUTS.loginPageLoad });
     await page.waitForSelector(settings.selectors.usuarioInput, { timeout: TIMEOUTS.selector });
     await captureDebugScreenshot(
       page,
@@ -1136,6 +1162,7 @@ async function login(page, settings, logger, screenshotsDir) {
 async function procesarPaciente(page, patient, patientFolder, settings, screenshotsDir, logger, capturePrefix, signal) {
   throwIfCancelled(signal);
   await asegurarNroBeneficio(page);
+  await waitForEditableInput(page, settings.selectors.afiliadoInput, TIMEOUTS.afiliadoInput);
   await captureDebugScreenshot(
     page,
     settings,
