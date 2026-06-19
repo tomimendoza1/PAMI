@@ -43,6 +43,19 @@ function mergeSettings(base, overrides) {
   return next;
 }
 
+function getBrowserLaunchOptions(settings, logger) {
+  const mustRunHeadless = process.platform !== "win32" && !process.env.DISPLAY;
+  if (mustRunHeadless && !settings.headless) {
+    logger.warn("Modo visible desactivado automaticamente: el servidor Linux no tiene pantalla grafica. Se usara headless.");
+  }
+
+  return {
+    channel: settings.browserChannel || undefined,
+    headless: mustRunHeadless ? true : settings.headless,
+    args: ["--no-sandbox", "--disable-dev-shm-usage"]
+  };
+}
+
 function createLogger(log) {
   return {
     info(message) {
@@ -1198,11 +1211,7 @@ async function runPamiBot({ rawSettings, inputDir, screenshotsDir, log, signal }
 
   try {
     throwIfCancelled(signal);
-    browser = await chromium.launch({
-      channel: settings.browserChannel || undefined,
-      headless: settings.headless,
-      args: ["--no-sandbox", "--disable-dev-shm-usage"]
-    });
+    browser = await chromium.launch(getBrowserLaunchOptions(settings, logger));
     context = await browser.newContext();
     page = await context.newPage();
     page.setDefaultTimeout(20000);
