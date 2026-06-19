@@ -9,7 +9,7 @@ const TIMEOUTS = {
   shortAction: 2000,
   selector: 4000,
   loginNavigation: 6000,
-  pageLoad: 12000,
+  pageLoad: 20000,
   formReady: 6000,
   autocomplete: 1500,
   autocompleteQuick: 900,
