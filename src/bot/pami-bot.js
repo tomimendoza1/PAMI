@@ -12,22 +12,23 @@ const TIMEOUTS = {
   loginPageLoad: 30000,
   pageLoad: 20000,
   formReady: 20000,
+  formOpenAttempts: 3,
   afiliadoInput: 10000,
   afiliadoAutocomplete: 6000,
   autocomplete: 3500,
-  autocompleteQuick: 900,
+  autocompleteQuick: 5000,
   practicaAutocomplete: 6000,
   documentacionOptions: 8000,
   documentacionReady: 4000,
   documentacionButton: 8000,
   fileChooser: 6000,
-  networkIdle: 2500,
-  confirmation: 2500,
+  networkIdle: 5000,
+  confirmation: 5000,
   generar: 30000,
-  datosMedicosButton: 2000,
-  datosMedicosClick: 2500,
-  omeInput: 2500,
-  bodyText: 1000
+  datosMedicosButton: 5000,
+  datosMedicosClick: 5000,
+  omeInput: 5000,
+  bodyText: 5000
 };
 
 const PAUSES = {
@@ -951,20 +952,28 @@ async function waitForPamiForm(page, settings, options = {}) {
           logger: options.logger,
           screenshotName: options.screenshotName
         };
-  const selectors = [
-    settings.selectors.postLoginCheck,
-    settings.selectors.afiliadoInput,
-    'input[name="tipo_busqueda_datos_del_afiliado"]',
-    settings.selectors.motivoSelect
-  ].filter(Boolean);
-
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeout) {
-    for (const selector of selectors) {
-      if (await page.locator(selector).first().count().catch(() => 0)) {
-        return selector;
-      }
+    const ready = await page.evaluate((selectors) => {
+      const afiliado = document.querySelector(selectors.afiliadoInput);
+      const motivo = document.querySelector(selectors.motivoSelect);
+      const radios = document.querySelectorAll('input[type="radio"][name="tipo_busqueda_datos_del_afiliado"]');
+      const loadingText = String(document.body ? document.body.innerText || "" : "").replace(/\s+/g, " ");
+
+      return Boolean(
+        afiliado &&
+          motivo &&
+          radios.length >= 3 &&
+          !afiliado.disabled &&
+          !afiliado.readOnly &&
+          !/Cargando\.?\s+Por favor espere/i.test(loadingText)
+      );
+    }, settings.selectors).catch(() => false);
+
+    if (ready) {
+      return settings.selectors.afiliadoInput;
     }
+
     if (await getPamiAccessBlocker(page)) {
       await throwPamiFormError(page, errorOptions);
     }
@@ -975,10 +984,37 @@ async function waitForPamiForm(page, settings, options = {}) {
 }
 
 async function abrirFormularioNuevo(page, settings, options = {}) {
-  await closeAutocompleteMenus(page);
-  await page.goto(settings.formUrl, { waitUntil: "domcontentloaded", timeout: TIMEOUTS.pageLoad });
-  await waitForPamiForm(page, settings, options);
-  await closeAutocompleteMenus(page);
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= TIMEOUTS.formOpenAttempts; attempt += 1) {
+    try {
+      await closeAutocompleteMenus(page);
+      await page.goto(settings.formUrl, { waitUntil: "domcontentloaded", timeout: TIMEOUTS.pageLoad });
+      await waitForPamiLoadingToFinish(page, 5000).catch(() => null);
+      const waitOptions =
+        attempt >= TIMEOUTS.formOpenAttempts
+          ? options
+          : {
+              timeout: options.timeout || TIMEOUTS.formReady
+            };
+      await waitForPamiForm(page, settings, waitOptions);
+      await closeAutocompleteMenus(page);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt >= TIMEOUTS.formOpenAttempts) {
+        break;
+      }
+
+      if (options.logger) {
+        options.logger.warn(`El formulario de PAMI no quedo listo. Reintentando apertura (${attempt + 1}/${TIMEOUTS.formOpenAttempts})...`);
+      }
+      await page.goto("about:blank", { waitUntil: "domcontentloaded", timeout: TIMEOUTS.shortAction }).catch(() => null);
+      await sleep(500);
+    }
+  }
+
+  throw lastError || new Error("No se pudo abrir el formulario de PAMI.");
 }
 
 async function asegurarNroBeneficio(page) {
