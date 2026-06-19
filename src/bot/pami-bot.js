@@ -16,6 +16,7 @@ const TIMEOUTS = {
   afiliadoAutocomplete: 6000,
   autocomplete: 1500,
   autocompleteQuick: 900,
+  practicaAutocomplete: 6000,
   documentacionOptions: 8000,
   documentacionReady: 2500,
   fileChooser: 3000,
@@ -401,7 +402,11 @@ async function clickAutocompleteSuggestion(page, selectors, text, timeout = TIME
   for (const item of items) {
     const itemText = ((await item.innerText()) || "").trim();
     if (!text || itemText.includes(text)) {
-      await item.click();
+      await item.evaluate((element) => {
+        element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+        element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+        element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+      });
       return;
     }
   }
@@ -410,7 +415,11 @@ async function clickAutocompleteSuggestion(page, selectors, text, timeout = TIME
     throw new Error("No hubo opciones para seleccionar en el autocomplete.");
   }
 
-  await items[0].click();
+  await items[0].evaluate((element) => {
+    element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+    element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+    element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+  });
 }
 
 async function clickExactAutocompleteSuggestion(page, selectors, text, timeout = TIMEOUTS.autocomplete) {
@@ -420,7 +429,11 @@ async function clickExactAutocompleteSuggestion(page, selectors, text, timeout =
     const itemText = ((await item.innerText()) || "").trim();
     const itemDigits = digitsOnly(itemText);
     if (itemText.includes(text) || itemDigits.includes(text)) {
-      await item.click();
+      await item.evaluate((element) => {
+        element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+        element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+        element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+      });
       return;
     }
   }
@@ -482,6 +495,12 @@ async function acceptAutocompleteOrKeepTypedValue(page, selector, selectors, tex
   if (!String(value || "").trim()) {
     throw new Error(`No se pudo confirmar el valor "${text}" en ${selector}.`);
   }
+}
+
+async function selectRequiredAutocomplete(page, selector, selectors, text, timeout) {
+  await pressEnter(page, selector);
+  await clickExactAutocompleteSuggestion(page, selectors, text, timeout);
+  await page.locator(selector).first().blur().catch(() => null);
 }
 
 async function refreshMedicalDataFields(page, settings) {
@@ -1025,10 +1044,21 @@ async function waitForDatosMedicosEnabled(page, settings, timeout = TIMEOUTS.dat
   await button.waitFor({ state: "visible", timeout: TIMEOUTS.selector });
   await button.scrollIntoViewIfNeeded();
   const startedAt = Date.now();
+  let autocompleteRetried = false;
 
   while (Date.now() - startedAt < timeout) {
     if (await button.isEnabled().catch(() => false)) {
       return true;
+    }
+
+    if (!autocompleteRetried) {
+      autocompleteRetried = true;
+      await clickExactAutocompleteSuggestion(
+        page,
+        settings.autocompleteSelectors,
+        settings.fixed.practica,
+        TIMEOUTS.autocompleteQuick
+      ).catch(() => null);
     }
 
     await refreshMedicalDataFields(page, settings).catch(() => null);
@@ -1064,12 +1094,12 @@ async function agregarPracticaYEsperarDocumentacion(page, settings) {
 
     if (attempt < 2) {
       await typeLikeHuman(page, settings.selectors.practicaInput, settings.fixed.practica);
-      await acceptAutocompleteOrKeepTypedValue(
+      await selectRequiredAutocomplete(
         page,
         settings.selectors.practicaInput,
         settings.autocompleteSelectors,
         settings.fixed.practica,
-        TIMEOUTS.autocompleteQuick
+        TIMEOUTS.practicaAutocomplete
       );
       await refreshMedicalDataFields(page, settings);
     }
@@ -1237,11 +1267,12 @@ async function procesarPaciente(page, patient, patientFolder, settings, screensh
   );
   await selectByBestText(page, settings.selectors.modalidadSelect, settings.fixed.modalidad);
   await typeLikeHuman(page, settings.selectors.practicaInput, settings.fixed.practica);
-  await acceptAutocompleteOrKeepTypedValue(
+  await selectRequiredAutocomplete(
     page,
     settings.selectors.practicaInput,
     settings.autocompleteSelectors,
-    settings.fixed.practica
+    settings.fixed.practica,
+    TIMEOUTS.practicaAutocomplete
   );
   await agregarPracticaYEsperarDocumentacion(page, settings);
 
